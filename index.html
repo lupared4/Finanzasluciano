@@ -164,6 +164,180 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
+     MODAL — PERFIL INVERSOR
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="modal-perfil" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+  <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+
+    <!-- PASO 1: Encuesta -->
+    <div id="perfil-encuesta">
+      <div class="p-6 border-b border-gray-700 flex justify-between items-center sticky top-0 bg-gray-800 z-10">
+        <div>
+          <h2 class="text-white font-bold text-lg">🧠 Descubrí tu Perfil Inversor</h2>
+          <p class="text-gray-400 text-xs mt-1">5 preguntas · menos de 1 minuto · completamente personalizado</p>
+        </div>
+        <button onclick="cerrarModal('modal-perfil')" class="text-gray-400 hover:text-white text-2xl font-bold leading-none">&times;</button>
+      </div>
+      <div class="p-6 space-y-6">
+
+        <!-- P1 -->
+        <div>
+          <p class="text-white font-semibold mb-3 text-sm">1. ¿Cuál es tu horizonte de inversión?</p>
+          <div class="space-y-2">
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q1" value="0" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Corto plazo (menos de 1 año)</p><p class="text-[10px] text-gray-500">Necesito el dinero relativamente pronto</p></div>
+            </label>
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q1" value="1" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Mediano plazo (1 a 5 años)</p><p class="text-[10px] text-gray-500">Puedo esperar algunos años</p></div>
+            </label>
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q1" value="2" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Largo plazo (más de 5 años)</p><p class="text-[10px] text-gray-500">Invierto para el futuro, no me apuro</p></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- P2 -->
+        <div>
+          <p class="text-white font-semibold mb-3 text-sm">2. Si tu cartera cae un 30% de repente, ¿qué hacés?</p>
+          <div class="space-y-2">
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q2" value="0" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Vendo todo para no perder más</p><p class="text-[10px] text-gray-500">No puedo tolerar esas pérdidas</p></div>
+            </label>
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q2" value="1" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Me preocupa, pero mantengo y espero</p><p class="text-[10px] text-gray-500">Confío en que el mercado se recupera</p></div>
+            </label>
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q2" value="2" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Veo una oportunidad y compro más</p><p class="text-[10px] text-gray-500">Los descuentos son para aprovecharlos</p></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- P3 -->
+        <div>
+          <p class="text-white font-semibold mb-3 text-sm">3. ¿Cuál es tu objetivo principal con esta inversión?</p>
+          <div class="space-y-2">
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q3" value="0" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Preservar mi capital</p><p class="text-[10px] text-gray-500">Priorizo no perder sobre ganar</p></div>
+            </label>
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q3" value="1" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Crecimiento moderado y estable</p><p class="text-[10px] text-gray-500">Balance entre seguridad y rendimiento</p></div>
+            </label>
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q3" value="2" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Máximo crecimiento posible</p><p class="text-[10px] text-gray-500">Acepto más riesgo a cambio de más retorno</p></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- P4 -->
+        <div>
+          <p class="text-white font-semibold mb-3 text-sm">4. ¿Qué porcentaje de tus ahorros vas a destinar a inversiones?</p>
+          <div class="space-y-2">
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q4" value="0" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Menos del 10%</p><p class="text-[10px] text-gray-500">Solo una pequeña parte de mis ahorros</p></div>
+            </label>
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q4" value="1" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Entre 10% y 30%</p><p class="text-[10px] text-gray-500">Una porción importante</p></div>
+            </label>
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q4" value="2" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Más del 30%</p><p class="text-[10px] text-gray-500">Gran parte de mis ahorros</p></div>
+            </label>
+          </div>
+        </div>
+
+        <!-- P5 -->
+        <div>
+          <p class="text-white font-semibold mb-3 text-sm">5. ¿Cuánta experiencia tenés en el mundo de las inversiones?</p>
+          <div class="space-y-2">
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q5" value="0" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Soy principiante</p><p class="text-[10px] text-gray-500">Recién estoy empezando a invertir</p></div>
+            </label>
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q5" value="1" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Tengo algo de experiencia</p><p class="text-[10px] text-gray-500">Conozco los conceptos básicos del mercado</p></div>
+            </label>
+            <label class="flex items-center gap-3 p-3 rounded-xl border border-gray-700 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all">
+              <input type="radio" name="q5" value="2" class="accent-blue-500 w-4 h-4 shrink-0">
+              <div><p class="text-sm text-white">Soy inversor experimentado</p><p class="text-[10px] text-gray-500">Manejo bien los instrumentos del mercado</p></div>
+            </label>
+          </div>
+        </div>
+
+        <button onclick="calcularPerfil()"
+                class="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold transition-all text-sm">
+          Ver mi Perfil Inversor →
+        </button>
+      </div>
+    </div>
+
+    <!-- PASO 2: Resultado -->
+    <div id="perfil-resultado" class="hidden">
+      <div class="p-6 border-b border-gray-700 flex justify-between items-center sticky top-0 bg-gray-800 z-10">
+        <h2 class="text-white font-bold text-lg">Tu Perfil de Inversor</h2>
+        <button onclick="cerrarModal('modal-perfil')" class="text-gray-400 hover:text-white text-2xl font-bold leading-none">&times;</button>
+      </div>
+      <div class="p-6">
+
+        <!-- Badge perfil -->
+        <div class="text-center mb-6">
+          <div id="perfil-icono" class="text-6xl mb-3"></div>
+          <h3 id="perfil-nombre" class="text-2xl font-bold mb-2"></h3>
+          <p id="perfil-descripcion" class="text-gray-400 text-sm max-w-md mx-auto leading-relaxed"></p>
+          <!-- Barra de escala -->
+          <div class="mt-5 max-w-xs mx-auto">
+            <div class="flex justify-between text-[9px] text-gray-500 mb-1">
+              <span>🛡️ Conservador</span><span>⚖️ Moderado</span><span>🚀 Agresivo</span>
+            </div>
+            <div class="relative h-3 bg-gray-700 rounded-full overflow-visible">
+              <div class="absolute inset-y-0 left-0 w-1/3 bg-blue-700/40 rounded-l-full"></div>
+              <div class="absolute inset-y-0 left-1/3 w-1/3 bg-yellow-700/40"></div>
+              <div class="absolute inset-y-0 left-2/3 w-1/3 bg-red-700/40 rounded-r-full"></div>
+              <div id="perfil-indicador"
+                   class="absolute top-1/2 -translate-y-1/2 w-5 h-5 bg-white rounded-full shadow-lg border-2 border-gray-900 transition-all duration-700"
+                   style="left:0%"></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Cartera sugerida -->
+        <div class="border-t border-gray-700 pt-6">
+          <div class="flex items-center gap-2 mb-1">
+            <h4 class="text-blue-300 font-bold text-sm uppercase tracking-widest">Cartera Sugerida</h4>
+          </div>
+          <p class="text-gray-500 text-[10px] mb-4">Pesos orientativos del portafolio. Ajustá cantidades según tu capital. Hacé clic en <strong class="text-gray-300">+ Agregar</strong> para cargarlo en tu cartera.</p>
+          <div id="perfil-cartera" class="space-y-2"></div>
+          <p class="text-gray-600 text-[9px] mt-4 italic">⚠️ Esto no es asesoramiento financiero. Consultá con un profesional antes de invertir.</p>
+        </div>
+
+        <div class="flex gap-3 mt-6">
+          <button onclick="document.getElementById('perfil-encuesta').classList.remove('hidden'); document.getElementById('perfil-resultado').classList.add('hidden')"
+                  class="flex-1 bg-gray-700 hover:bg-gray-600 py-2 rounded-xl font-bold text-sm transition-all">
+            ← Repetir encuesta
+          </button>
+          <button onclick="cerrarModal('modal-perfil')"
+                  class="flex-1 bg-blue-600 hover:bg-blue-500 py-2 rounded-xl font-bold text-sm transition-all">
+            Cerrar
+          </button>
+        </div>
+      </div>
+    </div>
+
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
      CONTENIDO PRINCIPAL
 ════════════════════════════════════════════════════════════════════════════ -->
 <div class="container mx-auto px-3 sm:px-4 py-4 sm:py-8">
@@ -184,8 +358,14 @@
                 <p class="text-blue-400 text-[11px] sm:text-xs tracking-widest uppercase font-medium">Tu portafolio. Tu control. Tu futuro.</p>
             </div>
         </div>
-        <div id="status" class="text-green-400 font-bold px-3 py-1 bg-green-900/30 rounded-full text-sm whitespace-nowrap">
-            ● Sistema Online
+        <div class="flex items-center gap-3">
+            <button onclick="document.getElementById('modal-perfil').classList.remove('hidden')"
+                    class="text-xs bg-purple-700 hover:bg-purple-600 px-3 py-1.5 rounded-full font-bold transition-all flex items-center gap-1.5 whitespace-nowrap">
+                🧠 Mi Perfil
+            </button>
+            <div id="status" class="text-green-400 font-bold px-3 py-1 bg-green-900/30 rounded-full text-sm whitespace-nowrap">
+                ● Sistema Online
+            </div>
         </div>
     </header>
 
@@ -1637,6 +1817,124 @@ function exportarPDF() {
         startY: 27,
     });
     doc.save("Reporte.pdf");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PERFIL INVERSOR — ENCUESTA Y CARTERA RECOMENDADA
+// ═══════════════════════════════════════════════════════════════════════════
+const PERFILES_DATA = {
+    conservador: {
+        nombre: 'Conservador',
+        icono: '🛡️',
+        colorNombre: 'text-blue-400',
+        descripcion: 'Priorizás la seguridad sobre el rendimiento. Tu cartera busca preservar el capital con activos estables, bonos y ETFs de baja volatilidad.',
+        cartera: [
+            { ticker: 'BND',  nombre: 'Vanguard Total Bond Market ETF',    pct: 30, tipo: 'Bonos',      color: 'blue'   },
+            { ticker: 'TLT',  nombre: 'iShares 20+ Year Treasury Bond ETF', pct: 20, tipo: 'Bonos LP',   color: 'blue'   },
+            { ticker: 'SPY',  nombre: 'S&P 500 ETF (SPDR)',                 pct: 25, tipo: 'Acciones',   color: 'green'  },
+            { ticker: 'GLD',  nombre: 'SPDR Gold Shares',                   pct: 15, tipo: 'Oro',        color: 'yellow' },
+            { ticker: 'VYM',  nombre: 'Vanguard High Dividend Yield ETF',   pct: 10, tipo: 'Dividendos', color: 'green'  },
+        ]
+    },
+    moderado: {
+        nombre: 'Moderado',
+        icono: '⚖️',
+        colorNombre: 'text-yellow-400',
+        descripcion: 'Buscás un equilibrio entre seguridad y crecimiento. Aceptás cierta volatilidad a cambio de mejores retornos en el mediano plazo.',
+        cartera: [
+            { ticker: 'SPY',  nombre: 'S&P 500 ETF (SPDR)',              pct: 30, tipo: 'Acciones',       color: 'green'  },
+            { ticker: 'QQQ',  nombre: 'Invesco Nasdaq 100 ETF',          pct: 20, tipo: 'Tecnología',     color: 'purple' },
+            { ticker: 'BND',  nombre: 'Vanguard Total Bond Market ETF',  pct: 20, tipo: 'Bonos',          color: 'blue'   },
+            { ticker: 'VTI',  nombre: 'Vanguard Total Market ETF',       pct: 15, tipo: 'Mercado total',  color: 'green'  },
+            { ticker: 'VEA',  nombre: 'Vanguard Developed Markets ETF',  pct: 15, tipo: 'Internacional',  color: 'teal'   },
+        ]
+    },
+    agresivo: {
+        nombre: 'Agresivo',
+        icono: '🚀',
+        colorNombre: 'text-red-400',
+        descripcion: 'Buscás el máximo crecimiento y aceptás alta volatilidad. Tu horizonte es largo y podés soportar caídas importantes en el corto plazo.',
+        cartera: [
+            { ticker: 'QQQ',  nombre: 'Invesco Nasdaq 100 ETF',               pct: 30, tipo: 'Tecnología',      color: 'purple' },
+            { ticker: 'VGT',  nombre: 'Vanguard Information Technology ETF',  pct: 20, tipo: 'Tech',             color: 'purple' },
+            { ticker: 'SPYG', nombre: 'SPDR S&P 500 Growth ETF',              pct: 20, tipo: 'Growth',           color: 'green'  },
+            { ticker: 'SOXX', nombre: 'iShares Semiconductor ETF',            pct: 15, tipo: 'Semiconductores',  color: 'purple' },
+            { ticker: 'ARKK', nombre: 'ARK Innovation ETF',                   pct: 15, tipo: 'Innovación',       color: 'red'    },
+        ]
+    }
+};
+
+function calcularPerfil() {
+    let total = 0, contestadas = 0;
+    for (let i = 1; i <= 5; i++) {
+        const sel = document.querySelector(`input[name="q${i}"]:checked`);
+        if (sel) { total += parseInt(sel.value); contestadas++; }
+    }
+    if (contestadas < 5) {
+        alert('Por favor respondé todas las preguntas antes de continuar.');
+        return;
+    }
+    const perfil = total <= 3 ? 'conservador' : total <= 6 ? 'moderado' : 'agresivo';
+    mostrarResultadoPerfil(perfil, total);
+}
+
+function mostrarResultadoPerfil(perfil, score) {
+    const data = PERFILES_DATA[perfil];
+
+    document.getElementById('perfil-encuesta').classList.add('hidden');
+    document.getElementById('perfil-resultado').classList.remove('hidden');
+
+    document.getElementById('perfil-icono').innerText     = data.icono;
+    const nomEl = document.getElementById('perfil-nombre');
+    nomEl.className   = `text-2xl font-bold mb-2 ${data.colorNombre}`;
+    nomEl.innerText   = `Perfil ${data.nombre}`;
+    document.getElementById('perfil-descripcion').innerText = data.descripcion;
+
+    // Indicador en barra (score 0-10 → 0-100%)
+    const pct = Math.min((score / 10) * 100, 96);
+    document.getElementById('perfil-indicador').style.left = `calc(${pct}% - 10px)`;
+
+    const colorMap = {
+        blue:   'bg-blue-900/50   border-blue-700/50   text-blue-300',
+        green:  'bg-green-900/50  border-green-700/50  text-green-300',
+        yellow: 'bg-yellow-900/50 border-yellow-700/50 text-yellow-300',
+        purple: 'bg-purple-900/50 border-purple-700/50 text-purple-300',
+        teal:   'bg-teal-900/50   border-teal-700/50   text-teal-300',
+        red:    'bg-red-900/50    border-red-700/50    text-red-300',
+    };
+
+    document.getElementById('perfil-cartera').innerHTML = data.cartera.map(item => `
+        <div class="flex items-center gap-3 p-3 bg-gray-900/60 border border-gray-700 rounded-xl hover:border-gray-600 transition-all">
+            <div class="flex-1 min-w-0">
+                <div class="flex items-center gap-2 mb-0.5 flex-wrap">
+                    <span class="font-bold text-white text-sm">${item.ticker}</span>
+                    <span class="text-[9px] px-2 py-0.5 rounded-full border ${colorMap[item.color]}">${item.tipo}</span>
+                </div>
+                <p class="text-gray-500 text-[10px] truncate">${item.nombre}</p>
+            </div>
+            <div class="text-right mr-2 shrink-0">
+                <p class="font-mono font-bold text-white text-sm">${item.pct}%</p>
+                <p class="text-gray-500 text-[9px]">del portafolio</p>
+            </div>
+            <button onclick="agregarDesdeRecomendacion('${item.ticker}')"
+                    class="shrink-0 bg-blue-700 hover:bg-blue-600 text-white text-[10px] font-bold px-3 py-2 rounded-lg transition-all whitespace-nowrap">
+                + Agregar
+            </button>
+        </div>
+    `).join('');
+}
+
+function agregarDesdeRecomendacion(ticker) {
+    cerrarModal('modal-perfil');
+    const input = document.getElementById('input-ticker');
+    input.value = ticker;
+    document.getElementById('input-cantidad').value = '';
+    document.getElementById('input-precio').value   = '';
+    document.getElementById('input-cantidad').focus();
+    // Scroll al formulario
+    input.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    input.classList.add('ring-2', 'ring-purple-500');
+    setTimeout(() => input.classList.remove('ring-2', 'ring-purple-500'), 2500);
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
