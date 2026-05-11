@@ -760,45 +760,61 @@ async function cargarDatos() {
             return;
         }
 
-        // Traer precios del backend en paralelo
-        const priceResults = await Promise.allSettled(
-            tickers.map(t =>
-                fetch(`https://finanzasluciano.onrender.com/precio/${t}`)
-                    .then(r => r.json())
-                    .catch(() => ({ precio: 0 }))
-            )
-        );
+        // Construir datosActuales usando precio de compra como precio_actual inicial
+        function buildDatos(precioMap) {
+            return tickers.map(t => {
+                const compras        = porTicker[t].compras;
+                const ventas         = porTicker[t].ventas;
+                const cantComprada   = compras.reduce((s, o) => s + o.cantidad, 0);
+                const cantVendida    = ventas.reduce((s,  o) => s + o.cantidad, 0);
+                const cantActual     = cantComprada - cantVendida;
+                const costoTotal     = compras.reduce((s, o) => s + o.cantidad * o.precio, 0);
+                const precioPromedio = costoTotal / cantComprada;
+                const ingresoVentas  = ventas.reduce((s, o) => s + o.cantidad * o.precio, 0);
+                const costoVendido   = ventas.reduce((s, o) => s + o.cantidad * precioPromedio, 0);
+                const pnlRealizado   = ingresoVentas - costoVendido;
+                const precioActual   = precioMap[t] || precioPromedio;
+                const ganancia       = (precioActual - precioPromedio) * cantActual;
+                return {
+                    ticker:        t,
+                    cantidad:      cantActual,
+                    precio_compra: Math.round(precioPromedio * 100) / 100,
+                    precio_actual: Math.round(precioActual   * 100) / 100,
+                    ganancia:      Math.round(ganancia       * 100) / 100,
+                    pnl_realizado: Math.round(pnlRealizado   * 100) / 100,
+                };
+            });
+        }
 
-        datosActuales = tickers.map((t, i) => {
-            const compras       = porTicker[t].compras;
-            const ventas        = porTicker[t].ventas;
-            const cantComprada  = compras.reduce((s, o) => s + o.cantidad, 0);
-            const cantVendida   = ventas.reduce((s,  o) => s + o.cantidad, 0);
-            const cantActual    = cantComprada - cantVendida;
-            const costoTotal    = compras.reduce((s, o) => s + o.cantidad * o.precio, 0);
-            const precioPromedio = costoTotal / cantComprada;
-            const ingresoVentas = ventas.reduce((s, o) => s + o.cantidad * o.precio, 0);
-            const costoVendido  = ventas.reduce((s, o) => s + o.cantidad * precioPromedio, 0);
-            const pnlRealizado  = ingresoVentas - costoVendido;
-            const prRes = priceResults[i];
-            const precioActual  = (prRes.status === 'fulfilled' ? (prRes.value?.precio || 0) : 0);
-            const ganancia      = (precioActual - precioPromedio) * cantActual;
-            return {
-                ticker:        t,
-                cantidad:      cantActual,
-                precio_compra: Math.round(precioPromedio * 100) / 100,
-                precio_actual: Math.round(precioActual  * 100) / 100,
-                ganancia:      Math.round(ganancia      * 100) / 100,
-                pnl_realizado: Math.round(pnlRealizado  * 100) / 100,
-            };
-        });
-
+        // Paso 1: mostrar INMEDIATAMENTE con precio de compra (sin esperar red)
+        datosActuales = buildDatos({});
         renderTabla();
         renderTorta();
         if (datosActuales.length > 0 && !tickerActivo) {
             seleccionarActivo(datosActuales[0].ticker);
         }
         setStatus(true);
+
+        // Paso 2: actualizar precios reales en segundo plano (sin bloquear UI)
+        Promise.allSettled(
+            tickers.map(t =>
+                fetch(`https://finanzasluciano.onrender.com/precio/${t}`, { signal: AbortSignal.timeout(35000) })
+                    .then(r => r.json())
+                    .catch(() => ({ ticker: t, precio: 0 }))
+            )
+        ).then(results => {
+            const precioMap = {};
+            results.forEach((r, i) => {
+                if (r.status === 'fulfilled' && r.value?.precio > 0)
+                    precioMap[tickers[i]] = r.value.precio;
+            });
+            if (Object.keys(precioMap).length > 0) {
+                datosActuales = buildDatos(precioMap);
+                renderTabla();
+                renderTorta();
+            }
+        });
+
     } catch (e) {
         console.error('cargarDatos error:', e);
         setStatus(false);
