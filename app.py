@@ -7,6 +7,7 @@ import yfinance as yf
 import numpy as np
 import pandas as pd
 from pydantic import BaseModel
+import time
 
 app = FastAPI()
 
@@ -24,6 +25,45 @@ class TransaccionSchema(BaseModel):
     cantidad: float
     precio_unitario: float
 
+# ─── Cache en memoria para precios (TTL 60 segundos) ─────────────────────────
+_price_cache: dict = {}   # { ticker: (precio, timestamp) }
+_CACHE_TTL = 60           # segundos
+
+def get_precio_actual(ticker: str) -> float:
+    """Obtiene el precio con cache y multiples fallbacks para evitar rate-limit."""
+    now = time.time()
+    if ticker in _price_cache:
+        precio, ts = _price_cache[ticker]
+        if now - ts < _CACHE_TTL:
+            return precio
+
+    precio = 0.0
+    tk = yf.Ticker(ticker)
+
+    # Fallback 1: fast_info (más ligero, menos rate-limit)
+    try:
+        p = tk.fast_info.last_price
+        if p and p > 0:
+            precio = float(p)
+            _price_cache[ticker] = (precio, now)
+            return precio
+    except Exception:
+        pass
+
+    # Fallback 2: history
+    try:
+        data = tk.history(period="2d")
+        if not data.empty:
+            precio = float(data['Close'].iloc[-1])
+            _price_cache[ticker] = (precio, now)
+            return precio
+    except Exception:
+        pass
+
+    # Fallback 3: devolver 0 sin crashear
+    _price_cache[ticker] = (0.0, now)
+    return 0.0
+
 
 # ─── Resumen de cartera ───────────────────────────────────────────────────────
 @app.get("/resumen")
@@ -33,39 +73,43 @@ def obtener_resumen():
         tickers = session.query(Transaccion.ticker).distinct().all()
         cartera = []
         for (t,) in tickers:
-            txs     = session.query(Transaccion).filter_by(ticker=t).all()
-            compras = [tx for tx in txs if tx.tipo_operacion == 'Compra']
-            ventas  = [tx for tx in txs if tx.tipo_operacion == 'Venta']
+            try:
+                txs     = session.query(Transaccion).filter_by(ticker=t).all()
+                compras = [tx for tx in txs if tx.tipo_operacion == 'Compra']
+                ventas  = [tx for tx in txs if tx.tipo_operacion == 'Venta']
 
-            cant_comprada  = sum(tx.cantidad for tx in compras)
-            cant_vendida   = sum(tx.cantidad for tx in ventas)
-            cant_actual    = cant_comprada - cant_vendida
+                cant_comprada  = sum(tx.cantidad for tx in compras)
+                cant_vendida   = sum(tx.cantidad for tx in ventas)
+                cant_actual    = cant_comprada - cant_vendida
 
-            if cant_actual <= 0:
+                if cant_actual <= 0:
+                    continue
+
+                costo_total  = sum(tx.cantidad * tx.precio_unitario for tx in compras)
+                precio_prom  = costo_total / cant_comprada if cant_comprada > 0 else 0
+
+                ingreso_ventas = sum(tx.cantidad * tx.precio_unitario for tx in ventas)
+                costo_vendido  = sum(tx.cantidad * precio_prom for tx in ventas)
+                pnl_realizado  = round(ingreso_ventas - costo_vendido, 2)
+
+                precio_actual = get_precio_actual(t)
+                pnl_latente   = round((precio_actual * cant_actual) - (precio_prom * cant_actual), 2)
+
+                cartera.append({
+                    "ticker":        t,
+                    "cantidad":      cant_actual,
+                    "precio_compra": round(precio_prom, 2),
+                    "precio_actual": round(precio_actual, 2),
+                    "ganancia":      pnl_latente,
+                    "pnl_realizado": pnl_realizado,
+                })
+            except Exception as e:
+                print(f"Error procesando {t}: {e}")
                 continue
-
-            costo_total  = sum(tx.cantidad * tx.precio_unitario for tx in compras)
-            precio_prom  = costo_total / cant_comprada if cant_comprada > 0 else 0
-
-            ingreso_ventas = sum(tx.cantidad * tx.precio_unitario for tx in ventas)
-            costo_vendido  = sum(tx.cantidad * precio_prom for tx in ventas)
-            pnl_realizado  = round(ingreso_ventas - costo_vendido, 2)
-
-            tk   = yf.Ticker(t)
-            data = tk.history(period="1d")
-            precio_actual = float(data['Close'].iloc[-1]) if not data.empty else 0.0
-
-            pnl_latente = round((precio_actual * cant_actual) - (precio_prom * cant_actual), 2)
-
-            cartera.append({
-                "ticker":        t,
-                "cantidad":      cant_actual,
-                "precio_compra": round(precio_prom, 2),
-                "precio_actual": round(precio_actual, 2),
-                "ganancia":      pnl_latente,
-                "pnl_realizado": pnl_realizado,
-            })
         return cartera
+    except Exception as e:
+        print(f"Error en /resumen: {e}")
+        return []
     finally:
         session.close()
 
