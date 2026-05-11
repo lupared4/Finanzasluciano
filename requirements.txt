@@ -5,3 +5,4 @@ yfinance>=0.2.40
 numpy
 pandas
 pydantic
+pandas-datareader

@@ -9,6 +9,13 @@ import pandas as pd
 from pydantic import BaseModel
 import time
 import requests
+import datetime
+
+try:
+    from pandas_datareader import data as pdr
+    _PDR_OK = True
+except ImportError:
+    _PDR_OK = False
 
 app = FastAPI()
 
@@ -21,7 +28,7 @@ app.add_middleware(
 
 Session = sessionmaker(bind=engine)
 
-# ─── Sesión HTTP con User-Agent para evitar rate-limit de Yahoo Finance ───────
+# ─── Sesión HTTP con User-Agent ───────────────────────────────────────────────
 _yf_session = requests.Session()
 _yf_session.headers.update({
     'User-Agent': (
@@ -34,7 +41,6 @@ _yf_session.headers.update({
 })
 
 def yft(ticker: str) -> yf.Ticker:
-    """Devuelve un Ticker con sesión personalizada para evitar rate-limit."""
     return yf.Ticker(ticker, session=_yf_session)
 
 class TransaccionSchema(BaseModel):
@@ -43,11 +49,11 @@ class TransaccionSchema(BaseModel):
     precio_unitario: float
 
 # ─── Cache en memoria para precios (TTL 60 segundos) ─────────────────────────
-_price_cache: dict = {}   # { ticker: (precio, timestamp) }
-_CACHE_TTL = 60           # segundos
+_price_cache: dict = {}
+_CACHE_TTL = 60
 
 def get_precio_actual(ticker: str) -> float:
-    """Obtiene el precio con cache y multiples fallbacks para evitar rate-limit."""
+    """Obtiene el precio con cache y múltiples fallbacks."""
     now = time.time()
     if ticker in _price_cache:
         precio, ts = _price_cache[ticker]
@@ -172,8 +178,33 @@ _PERIOD_MAP = {
     "2d":  ("5d",  "1d"),
 }
 
+_PERIOD_DAYS = {
+    "5d": 7, "1mo": 35, "3mo": 95, "6mo": 185, "1y": 370, "2d": 5, "2y": 740
+}
+
+def fetch_stooq(ticker: str, period: str = "1y") -> pd.DataFrame:
+    """Obtiene histórico desde Stooq (sin rate-limit, sin API key)."""
+    if not _PDR_OK:
+        return pd.DataFrame()
+    try:
+        end   = datetime.date.today()
+        delta = datetime.timedelta(days=_PERIOD_DAYS.get(period, 370))
+        start = end - delta
+        # Stooq acepta el ticker en mayúsculas, a veces con sufijo .US
+        for t in [ticker.upper(), f"{ticker.upper()}.US"]:
+            try:
+                df = pdr.DataReader(t, 'stooq', start, end)
+                if not df.empty:
+                    df = df.sort_index()  # Stooq devuelve de nuevo a viejo
+                    return df
+            except Exception:
+                continue
+    except Exception as e:
+        print(f"fetch_stooq {ticker}: {e}")
+    return pd.DataFrame()
+
 def fetch_yahoo_v8(ticker: str, period: str = "1y") -> pd.DataFrame:
-    """Llama directo al API v8 de Yahoo Finance con headers de navegador."""
+    """Llama directo al API v8 de Yahoo Finance como segundo fallback."""
     yf_period, interval = _PERIOD_MAP.get(period, ("1y", "1d"))
     headers = {
         "User-Agent": (
@@ -232,12 +263,16 @@ def fetch_yahoo_v8(ticker: str, period: str = "1y") -> pd.DataFrame:
 
 
 def get_history(ticker: str, period: str = "1y") -> pd.DataFrame:
-    """Obtiene histórico: primero API directa v8, luego yf.download, luego tk.history."""
-    # Intento 1: API v8 directa (más confiable desde Render)
+    """Obtiene histórico: Stooq → Yahoo v8 API → yf.download → tk.history."""
+    # Intento 1: Stooq (sin rate-limit desde cualquier servidor)
+    df = fetch_stooq(ticker, period)
+    if not df.empty:
+        return df
+    # Intento 2: API v8 directa de Yahoo
     df = fetch_yahoo_v8(ticker, period)
     if not df.empty:
         return df
-    # Intento 2: yf.download
+    # Intento 3: yf.download
     try:
         data = yf.download(
             ticker, period=period, auto_adjust=True,
@@ -249,7 +284,7 @@ def get_history(ticker: str, period: str = "1y") -> pd.DataFrame:
             return data
     except Exception:
         pass
-    # Intento 3: tk.history
+    # Intento 4: tk.history
     try:
         return yft(ticker).history(period=period)
     except Exception:
