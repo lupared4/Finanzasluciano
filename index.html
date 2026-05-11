@@ -718,7 +718,7 @@ function fmtCap(v) {
 // ═══════════════════════════════════════════════════════════════════════════
 async function cargarDatos() {
     try {
-        const res = await fetch('http://127.0.0.1:8000/resumen');
+        const res = await fetch('https://finanzasluciano.onrender.com/resumen');
         datosActuales = await res.json();
         renderTabla();
         renderTorta();
@@ -817,13 +817,13 @@ async function seleccionarActivo(ticker) {
 
     try {
         const [velas, noticias, analisis, mc, ia, indicadores, orderbook] = await Promise.all([
-            fetch(`http://127.0.0.1:8000/velas/${ticker}?period=${periodoActivo}`).then(r => r.json()),
-            fetch(`http://127.0.0.1:8000/noticias/${ticker}`).then(r => r.json()),
-            fetch(`http://127.0.0.1:8000/analisis/${ticker}`).then(r => r.json()),
-            fetch(`http://127.0.0.1:8000/montecarlo/${ticker}?dias=${diasMC}`).then(r => r.json()),
-            fetch(`http://127.0.0.1:8000/ia/${ticker}`).then(r => r.json()),
-            fetch(`http://127.0.0.1:8000/indicadores/${ticker}`).then(r => r.json()),
-            fetch(`http://127.0.0.1:8000/orderbook/${ticker}`).then(r => r.json()),
+            fetch(`https://finanzasluciano.onrender.com/velas/${ticker}?period=${periodoActivo}`).then(r => r.json()),
+            fetch(`https://finanzasluciano.onrender.com/noticias/${ticker}`).then(r => r.json()),
+            fetch(`https://finanzasluciano.onrender.com/analisis/${ticker}`).then(r => r.json()),
+            fetch(`https://finanzasluciano.onrender.com/montecarlo/${ticker}?dias=${diasMC}`).then(r => r.json()),
+            fetch(`https://finanzasluciano.onrender.com/ia/${ticker}`).then(r => r.json()),
+            fetch(`https://finanzasluciano.onrender.com/indicadores/${ticker}`).then(r => r.json()),
+            fetch(`https://finanzasluciano.onrender.com/orderbook/${ticker}`).then(r => r.json()),
         ]);
         renderGrafico(velas);
         renderNoticias(noticias);
@@ -1029,7 +1029,7 @@ async function cambiarPeriodo(period) {
     const map = {'5d':'btn-5d','1mo':'btn-1mo','3mo':'btn-3mo','1y':'btn-1y'};
     activarBtnGrupo('.btn-periodo', map[period]);
     if (!tickerActivo) return;
-    const velas = await fetch(`http://127.0.0.1:8000/velas/${tickerActivo}?period=${period}`).then(r => r.json());
+    const velas = await fetch(`https://finanzasluciano.onrender.com/velas/${tickerActivo}?period=${period}`).then(r => r.json());
     renderGrafico(velas);
 }
 
@@ -1037,7 +1037,7 @@ async function cambiarTipoGrafico(tipo) {
     tipoGrafico = tipo;
     activarBtnGrupo('.btn-tipo', tipo === 'linea' ? 'btn-linea' : 'btn-velas');
     if (!tickerActivo) return;
-    const velas = await fetch(`http://127.0.0.1:8000/velas/${tickerActivo}?period=${periodoActivo}`).then(r => r.json());
+    const velas = await fetch(`https://finanzasluciano.onrender.com/velas/${tickerActivo}?period=${periodoActivo}`).then(r => r.json());
     renderGrafico(velas);
 }
 
@@ -1151,7 +1151,7 @@ async function cambiarDiasMC(dias) {
     const btn = document.getElementById(`btn-mc-${dias}`);
     btn.classList.remove('text-gray-400'); btn.classList.add('bg-blue-600','text-white');
     if (!tickerActivo) return;
-    const mc = await fetch(`http://127.0.0.1:8000/montecarlo/${tickerActivo}?dias=${dias}`).then(r => r.json());
+    const mc = await fetch(`https://finanzasluciano.onrender.com/montecarlo/${tickerActivo}?dias=${dias}`).then(r => r.json());
     renderMonteCarlo(mc);
 }
 
@@ -1276,7 +1276,7 @@ async function cargarCalendario() {
     const cont = document.getElementById('contenedor-calendario');
     cont.innerHTML = '<p class="text-gray-500 text-center py-6 text-sm animate-pulse">Consultando fechas de earnings...</p>';
     try {
-        const eventos = await fetch('http://127.0.0.1:8000/calendario').then(r => r.json());
+        const eventos = await fetch('https://finanzasluciano.onrender.com/calendario').then(r => r.json());
         if (!eventos || eventos.length === 0) {
             cont.innerHTML = '<p class="text-gray-500 italic text-center py-6">No se encontraron earnings próximos para los activos en cartera.</p>';
             return;
@@ -1329,7 +1329,7 @@ async function abrirEarningsModal(ticker) {
     });
 
     try {
-        const d = await fetch(`http://127.0.0.1:8000/earnings/${ticker}`).then(r => r.json());
+        const d = await fetch(`https://finanzasluciano.onrender.com/earnings/${ticker}`).then(r => r.json());
         if (d.error) { document.getElementById('er-nombre').innerText = 'Error al cargar datos'; return; }
 
         document.getElementById('er-nombre').innerText     = d.nombre || ticker;
@@ -1422,7 +1422,7 @@ async function confirmarVenta() {
         alert('Completá todos los campos con valores válidos.');
         return;
     }
-    const res  = await fetch('http://127.0.0.1:8000/vender', {
+    const res  = await fetch('https://finanzasluciano.onrender.com/vender', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ ticker, cantidad, precio_unitario: precio }),
@@ -1440,7 +1440,7 @@ async function enviarCompra() {
     const c = document.getElementById('input-cantidad').value;
     const p = document.getElementById('input-precio').value;
     if (!t || !c || !p) return;
-    await fetch('http://127.0.0.1:8000/comprar', {
+    await fetch('https://finanzasluciano.onrender.com/comprar', {
         method: 'POST',
         headers: {'Content-Type': 'application/json'},
         body: JSON.stringify({ ticker: t.toUpperCase(), cantidad: parseFloat(c), precio_unitario: parseFloat(p) }),
@@ -1456,7 +1456,7 @@ async function enviarCompra() {
 // ═══════════════════════════════════════════════════════════════════════════
 async function eliminarActivo(t) {
     if (!confirm(`¿Eliminar TODAS las operaciones de ${t}?`)) return;
-    await fetch(`http://127.0.0.1:8000/borrar/${t}`, { method: 'DELETE' });
+    await fetch(`https://finanzasluciano.onrender.com/borrar/${t}`, { method: 'DELETE' });
     if (tickerActivo === t) {
         tickerActivo = null;
         document.getElementById('seccion-analisis').style.display = 'none';
@@ -1499,7 +1499,7 @@ function exportarPDF() {
 async function precargarLogos() {
     if (datosActuales.length === 0) return;
     const promises = datosActuales.map(item =>
-        fetch(`http://127.0.0.1:8000/indicadores/${item.ticker}`)
+        fetch(`https://finanzasluciano.onrender.com/indicadores/${item.ticker}`)
             .then(r => r.json())
             .then(d => { if (d.logo_url && !logoCache[item.ticker]) logoCache[item.ticker] = d.logo_url; })
             .catch(() => {})
