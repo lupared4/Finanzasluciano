@@ -1,0 +1,1524 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Terminal de Inversiones - Luciano</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+</head>
+<body class="bg-gray-900 text-gray-100 font-sans">
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODAL — VENTA
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="modal-venta" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center z-50">
+    <div class="bg-gray-800 border border-gray-700 p-6 rounded-xl w-80 shadow-2xl">
+        <h3 class="text-red-400 font-bold mb-4 text-sm uppercase tracking-widest">Registrar Venta</h3>
+        <input id="venta-ticker" readonly
+               class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white font-bold uppercase outline-none">
+        <input type="number" id="venta-cantidad" placeholder="Cantidad a vender"
+               class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white focus:ring-2 focus:ring-red-500 outline-none">
+        <input type="number" id="venta-precio" placeholder="Precio de Venta"
+               class="w-full bg-gray-700 rounded-lg p-2 mb-4 text-white focus:ring-2 focus:ring-red-500 outline-none">
+        <div class="flex gap-3">
+            <button onclick="confirmarVenta()"
+                    class="flex-1 bg-red-600 hover:bg-red-500 py-2 rounded-lg font-bold transition-all text-sm">Confirmar</button>
+            <button onclick="cerrarModal('modal-venta')"
+                    class="flex-1 bg-gray-600 hover:bg-gray-500 py-2 rounded-lg font-bold transition-all text-sm">Cancelar</button>
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODAL — REPORTE DE EARNINGS
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="modal-earnings" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+    <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+
+        <!-- Header modal -->
+        <div class="flex justify-between items-start p-6 border-b border-gray-700 sticky top-0 bg-gray-800 z-10">
+            <div>
+                <p id="er-industria" class="text-blue-400 text-[10px] uppercase tracking-widest mb-1">—</p>
+                <h2 id="er-nombre" class="text-xl font-bold text-white">Cargando...</h2>
+                <p id="er-sector" class="text-gray-400 text-xs mt-1">—</p>
+            </div>
+            <button onclick="cerrarModal('modal-earnings')"
+                    class="text-gray-400 hover:text-white text-2xl font-bold leading-none mt-1">&times;</button>
+        </div>
+
+        <div class="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
+
+            <!-- Descripción -->
+            <div class="md:col-span-2">
+                <p id="er-descripcion" class="text-gray-400 text-xs leading-relaxed"></p>
+            </div>
+
+            <!-- Próximos Earnings -->
+            <div class="bg-gray-900/60 rounded-xl p-4 border border-gray-700">
+                <h4 class="text-blue-300 font-bold text-xs uppercase tracking-widest mb-3">📅 Próximos Earnings</h4>
+                <p id="er-prox-fecha" class="text-white text-lg font-mono font-bold mb-3">—</p>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">EPS Estimado (bajo)</span>
+                        <span id="er-eps-bajo" class="font-mono text-red-400">—</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">EPS Estimado (medio)</span>
+                        <span id="er-eps-medio" class="font-mono text-white font-bold">—</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">EPS Estimado (alto)</span>
+                        <span id="er-eps-alto" class="font-mono text-green-400">—</span>
+                    </div>
+                    <div class="flex justify-between border-t border-gray-700 pt-2">
+                        <span class="text-gray-400">Revenue Estimado</span>
+                        <span id="er-rev-est" class="font-mono text-yellow-400">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Datos financieros clave -->
+            <div class="bg-gray-900/60 rounded-xl p-4 border border-gray-700">
+                <h4 class="text-blue-300 font-bold text-xs uppercase tracking-widest mb-3">📊 Datos Clave</h4>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">P/E Trailing</span>
+                        <span id="er-pe-trailing" class="font-mono">—</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">P/E Forward</span>
+                        <span id="er-pe-forward" class="font-mono">—</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">EPS TTM</span>
+                        <span id="er-eps-ttm" class="font-mono">—</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Market Cap</span>
+                        <span id="er-market-cap" class="font-mono">—</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Dividendo</span>
+                        <span id="er-dividendo" class="font-mono">—</span>
+                    </div>
+                    <div class="flex justify-between border-t border-gray-700 pt-2">
+                        <span class="text-gray-400">Rango 52s</span>
+                        <span id="er-rango52" class="font-mono text-xs">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Price Targets de analistas -->
+            <div class="bg-gray-900/60 rounded-xl p-4 border border-gray-700">
+                <h4 class="text-blue-300 font-bold text-xs uppercase tracking-widest mb-3">🎯 Targets de Analistas</h4>
+                <p class="text-gray-500 text-[10px] mb-3">
+                    Basado en <span id="er-n-analistas" class="text-white font-bold">—</span> analistas
+                </p>
+                <div class="space-y-2 text-sm">
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Target Bajo</span>
+                        <span id="er-target-bajo" class="font-mono text-red-400">—</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Target Medio (consenso)</span>
+                        <span id="er-target-medio" class="font-mono text-white font-bold">—</span>
+                    </div>
+                    <div class="flex justify-between">
+                        <span class="text-gray-400">Target Alto</span>
+                        <span id="er-target-alto" class="font-mono text-green-400">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- EPS Histórico -->
+            <div class="bg-gray-900/60 rounded-xl p-4 border border-gray-700">
+                <h4 class="text-blue-300 font-bold text-xs uppercase tracking-widest mb-3">📈 EPS Histórico</h4>
+                <div style="height:130px;"><canvas id="er-chart-eps"></canvas></div>
+            </div>
+
+            <!-- Tabla EPS histórico -->
+            <div class="md:col-span-2 bg-gray-900/60 rounded-xl p-4 border border-gray-700">
+                <h4 class="text-blue-300 font-bold text-xs uppercase tracking-widest mb-3">📋 Historial de Resultados</h4>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-xs text-left">
+                        <thead class="text-gray-500 border-b border-gray-700">
+                            <tr>
+                                <th class="pb-2">Período</th>
+                                <th class="pb-2 text-right">EPS Estimado</th>
+                                <th class="pb-2 text-right">EPS Real</th>
+                                <th class="pb-2 text-right">Sorpresa</th>
+                            </tr>
+                        </thead>
+                        <tbody id="er-tabla-eps" class="divide-y divide-gray-800"></tbody>
+                    </table>
+                </div>
+            </div>
+
+        </div>
+    </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     CONTENIDO PRINCIPAL
+════════════════════════════════════════════════════════════════════════════ -->
+<div class="container mx-auto px-3 sm:px-4 py-4 sm:py-8">
+
+    <!-- Header -->
+    <header class="flex flex-wrap justify-between items-center mb-8 border-b border-gray-800 pb-5 gap-3">
+        <h1 class="text-xl sm:text-3xl font-bold text-blue-400">📊 Terminal de Inversiones</h1>
+        <div id="status" class="text-green-400 font-bold px-3 py-1 bg-green-900/30 rounded-full text-sm whitespace-nowrap">
+            ● Sistema Online
+        </div>
+    </header>
+
+    <!-- ── ROW 1: Grid principal ──────────────────────────────────────────── -->
+    <div class="grid grid-cols-1 lg:grid-cols-4 gap-6">
+
+        <!-- COL 1: Formulario + Resumen -->
+        <div class="lg:col-span-1 space-y-6">
+
+            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
+                <h3 class="text-blue-300 font-bold mb-4 text-sm uppercase">Nueva Operación</h3>
+                <input type="text" id="input-ticker" placeholder="Ticker (ej: AAPL)"
+                       class="w-full bg-gray-700 rounded-lg p-2 mb-3 uppercase text-white focus:ring-2 focus:ring-blue-500 outline-none">
+                <input type="number" id="input-cantidad" placeholder="Cantidad"
+                       class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white outline-none">
+                <input type="number" id="input-precio" placeholder="Precio Compra"
+                       class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white outline-none">
+                <button onclick="enviarCompra()"
+                        class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded-lg font-bold transition-all">
+                    Registrar Compra
+                </button>
+            </div>
+
+            <!-- Resumen financiero -->
+            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
+                <p class="text-gray-400 text-xs uppercase tracking-widest">Patrimonio Total</p>
+                <h2 id="valor-total" class="text-xl sm:text-2xl font-mono text-white mt-1 font-bold">$0.00</h2>
+
+                <div class="border-t border-gray-700 my-4"></div>
+                <p class="text-gray-400 text-xs uppercase tracking-widest">P&amp;L Latente</p>
+                <h2 id="ganancia-total" class="text-xl sm:text-2xl font-mono mt-1 font-bold text-white">$0.00</h2>
+
+                <div class="border-t border-gray-700 my-4"></div>
+                <p class="text-gray-400 text-xs uppercase tracking-widest">P&amp;L Realizado</p>
+                <h2 id="pnl-realizado-total" class="text-xl sm:text-2xl font-mono mt-1 font-bold text-yellow-400">$0.00</h2>
+            </div>
+        </div>
+
+        <!-- COL 2-3: Gráfico + Tabla -->
+        <div class="lg:col-span-2 space-y-6">
+
+            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
+                <div class="flex flex-wrap justify-between items-center mb-3 gap-2">
+                    <h3 id="titulo-grafico" class="text-blue-300 font-bold text-sm">Evolución Histórica</h3>
+                    <div class="flex gap-2 flex-wrap">
+                        <div class="flex gap-1 bg-gray-700 rounded-lg p-1">
+                            <button id="btn-5d"  onclick="cambiarPeriodo('5d')"
+                                    class="btn-periodo px-2 py-1 text-xs rounded font-bold text-gray-400 hover:text-white transition-all">1S</button>
+                            <button id="btn-1mo" onclick="cambiarPeriodo('1mo')"
+                                    class="btn-periodo px-2 py-1 text-xs rounded font-bold bg-blue-600 text-white transition-all">1M</button>
+                            <button id="btn-3mo" onclick="cambiarPeriodo('3mo')"
+                                    class="btn-periodo px-2 py-1 text-xs rounded font-bold text-gray-400 hover:text-white transition-all">3M</button>
+                            <button id="btn-1y"  onclick="cambiarPeriodo('1y')"
+                                    class="btn-periodo px-2 py-1 text-xs rounded font-bold text-gray-400 hover:text-white transition-all">1A</button>
+                        </div>
+                        <div class="flex gap-1 bg-gray-700 rounded-lg p-1">
+                            <button id="btn-linea" onclick="cambiarTipoGrafico('linea')"
+                                    class="btn-tipo px-2 py-1 text-xs rounded font-bold bg-blue-600 text-white transition-all">Línea</button>
+                            <button id="btn-velas" onclick="cambiarTipoGrafico('velas')"
+                                    class="btn-tipo px-2 py-1 text-xs rounded font-bold text-gray-400 hover:text-white transition-all">Velas</button>
+                        </div>
+                    </div>
+                </div>
+                <div id="contenedor-grafico" style="height:260px;"></div>
+            </div>
+
+            <!-- Tabla de activos -->
+            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
+                <div class="flex flex-wrap justify-between items-center mb-4 gap-2">
+                    <h3 class="text-gray-300 font-bold">Mis Activos</h3>
+                    <div class="flex gap-2">
+                        <button onclick="exportarExcel()"
+                                class="text-xs bg-green-800 hover:bg-green-700 px-3 py-1 rounded font-bold transition-all">Excel</button>
+                        <button onclick="exportarPDF()"
+                                class="text-xs bg-red-800 hover:bg-red-700 px-3 py-1 rounded font-bold transition-all">PDF</button>
+                    </div>
+                </div>
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left">
+                        <thead class="text-gray-500 uppercase text-[10px] border-b border-gray-700">
+                            <tr>
+                                <th class="pb-2">Activo</th>
+                                <th class="pb-2">Cant.</th>
+                                <th class="pb-2">Precio Act.</th>
+                                <th class="pb-2 text-right">P&amp;L Latente</th>
+                                <th class="pb-2 text-center">Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody id="tabla-cartera" class="divide-y divide-gray-800"></tbody>
+                    </table>
+                </div>
+                <!-- Cache de logos para la tabla -->
+                <div id="logo-cache" class="hidden"></div>
+            </div>
+        </div>
+
+        <!-- COL 4: Distribución + Noticias -->
+        <div class="lg:col-span-1 space-y-6">
+            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
+                <h3 class="text-gray-300 font-bold mb-4 text-center text-xs uppercase tracking-widest">Distribución</h3>
+                <div style="height:180px;"><canvas id="graficoTorta"></canvas></div>
+            </div>
+            <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg min-h-[260px]">
+                <h3 id="titulo-noticias" class="text-blue-300 font-bold mb-4 uppercase text-xs">Noticias</h3>
+                <div id="contenedor-noticias" class="space-y-3 text-[11px]">
+                    <p class="text-gray-500 italic text-center">Hacé clic en un activo...</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── ROW 2a: Análisis técnico + IA (oculto hasta seleccionar activo) ── -->
+    <div id="seccion-analisis" style="display:none"
+         class="mt-6 grid grid-cols-1 lg:grid-cols-4 gap-6">
+
+        <!-- Métricas técnicas -->
+        <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
+            <h3 id="titulo-analisis" class="text-blue-300 font-bold mb-4 uppercase text-xs">Análisis Técnico</h3>
+            <div class="space-y-3 text-sm">
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400">SMA 20</span>
+                    <span id="val-sma20" class="font-mono font-bold">—</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400">SMA 50</span>
+                    <span id="val-sma50" class="font-mono font-bold">—</span>
+                </div>
+                <div class="border-t border-gray-700"></div>
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400">RSI (14)</span>
+                    <span id="val-rsi" class="font-mono font-bold">—</span>
+                </div>
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400">Beta vs SPY</span>
+                    <span id="val-beta" class="font-mono font-bold">—</span>
+                </div>
+                <div class="border-t border-gray-700"></div>
+                <div class="flex justify-between items-center">
+                    <span class="text-gray-400">Tendencia</span>
+                    <span id="badge-tendencia"
+                          class="text-xs font-bold px-2 py-1 rounded-full bg-gray-600">—</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Gauge de Volatilidad -->
+        <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg flex flex-col items-center justify-center">
+            <h3 class="text-blue-300 font-bold mb-2 uppercase text-xs text-center">Velocímetro de Riesgo</h3>
+            <canvas id="gauge-volatilidad" width="200" height="120" class="mx-auto block"></canvas>
+            <p id="label-riesgo" class="text-xs text-gray-400 mt-2 font-bold uppercase tracking-wide">—</p>
+        </div>
+
+        <!-- Monte Carlo -->
+        <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
+            <div class="flex justify-between items-center mb-3">
+                <div>
+                    <h3 id="titulo-montecarlo" class="text-blue-300 font-bold text-sm">Monte Carlo</h3>
+                    <p class="text-gray-500 text-[10px] mt-1">P5 / P50 / P95</p>
+                </div>
+                <div class="flex gap-1 bg-gray-700 rounded-lg p-1">
+                    <button id="btn-mc-30" onclick="cambiarDiasMC(30)"
+                            class="btn-mc px-2 py-1 text-xs rounded font-bold bg-blue-600 text-white transition-all">30d</button>
+                    <button id="btn-mc-60" onclick="cambiarDiasMC(60)"
+                            class="btn-mc px-2 py-1 text-xs rounded font-bold text-gray-400 hover:text-white transition-all">60d</button>
+                    <button id="btn-mc-90" onclick="cambiarDiasMC(90)"
+                            class="btn-mc px-2 py-1 text-xs rounded font-bold text-gray-400 hover:text-white transition-all">90d</button>
+                </div>
+            </div>
+            <div style="height:200px;"><canvas id="grafico-montecarlo"></canvas></div>
+        </div>
+
+        <!-- IA / Sentimiento -->
+        <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
+            <h3 id="titulo-ia" class="text-blue-300 font-bold mb-4 uppercase text-xs">Análisis IA</h3>
+
+            <!-- Score circular -->
+            <div class="flex flex-col items-center mb-4">
+                <canvas id="gauge-ia" width="140" height="80"></canvas>
+                <span id="ia-label"
+                      class="mt-2 text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full bg-gray-700 text-gray-300">
+                    —
+                </span>
+            </div>
+
+            <!-- Barra de optimismo -->
+            <div class="mb-4">
+                <div class="flex justify-between text-[10px] text-gray-500 mb-1">
+                    <span>Pesimista</span>
+                    <span id="ia-score-txt" class="text-white font-bold">—</span>
+                    <span>Optimista</span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-2.5 overflow-hidden">
+                    <div id="ia-barra"
+                         class="h-2.5 rounded-full transition-all duration-700 bg-gray-500"
+                         style="width:50%"></div>
+                </div>
+            </div>
+
+            <!-- Targets -->
+            <div class="space-y-1.5 text-xs mb-4">
+                <div class="flex justify-between">
+                    <span class="text-gray-400">Upside potencial</span>
+                    <span id="ia-upside" class="font-mono font-bold text-white">—</span>
+                </div>
+                <div class="flex justify-between">
+                    <span class="text-gray-400">Target consenso</span>
+                    <span id="ia-target-medio" class="font-mono text-white">—</span>
+                </div>
+                <div class="flex justify-between text-[10px]">
+                    <span id="ia-target-bajo" class="text-red-400 font-mono">—</span>
+                    <span class="text-gray-600">◀ rango ▶</span>
+                    <span id="ia-target-alto" class="text-green-400 font-mono">—</span>
+                </div>
+            </div>
+
+            <!-- Breakdown analistas -->
+            <div id="ia-breakdown" class="space-y-1 text-[10px]">
+                <p class="text-gray-500 text-center">—</p>
+            </div>
+        </div>
+
+    </div>
+
+    <!-- ── ROW 2b: Key Indicators + Order Book (oculto hasta seleccionar activo) ── -->
+    <div id="seccion-indicadores" style="display:none" class="mt-6 grid grid-cols-1 lg:grid-cols-2 gap-6">
+
+        <!-- KEY INDICATORS panel estilo Webull -->
+        <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h3 id="titulo-indicadores" class="text-blue-300 font-bold text-sm uppercase tracking-widest">Key Indicators</h3>
+                    <p class="text-gray-500 text-[10px] mt-0.5">Datos fundamentales · fuente Yahoo Finance</p>
+                </div>
+                <div id="ki-logo-box" class="w-10 h-10 rounded-lg bg-gray-700 flex items-center justify-center overflow-hidden">
+                    <span class="text-gray-500 text-[10px]">LOGO</span>
+                </div>
+            </div>
+
+            <!-- Tabs -->
+            <div class="flex flex-wrap gap-1 mb-4 border-b border-gray-700 pb-3">
+                <button onclick="kiTab('rentabilidad')" id="ki-tab-rentabilidad"
+                    class="ki-tab px-3 py-1 text-[10px] font-bold rounded-full bg-blue-600 text-white transition-all">Rentabilidad</button>
+                <button onclick="kiTab('margenes')" id="ki-tab-margenes"
+                    class="ki-tab px-3 py-1 text-[10px] font-bold rounded-full text-gray-400 hover:text-white bg-gray-700 transition-all">Márgenes</button>
+                <button onclick="kiTab('valoracion')" id="ki-tab-valoracion"
+                    class="ki-tab px-3 py-1 text-[10px] font-bold rounded-full text-gray-400 hover:text-white bg-gray-700 transition-all">Valoración</button>
+                <button onclick="kiTab('deuda')" id="ki-tab-deuda"
+                    class="ki-tab px-3 py-1 text-[10px] font-bold rounded-full text-gray-400 hover:text-white bg-gray-700 transition-all">Deuda</button>
+                <button onclick="kiTab('crecimiento')" id="ki-tab-crecimiento"
+                    class="ki-tab px-3 py-1 text-[10px] font-bold rounded-full text-gray-400 hover:text-white bg-gray-700 transition-all">Crecimiento</button>
+            </div>
+
+            <!-- Contenido tabs -->
+            <div id="ki-panel-rentabilidad" class="ki-panel">
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">ROA</p>
+                        <p id="ki-roa" class="text-white font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Return on Assets</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">ROE</p>
+                        <p id="ki-roe" class="text-white font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Return on Equity</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">EPS TTM</p>
+                        <p id="ki-eps-ttm" class="text-white font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Earnings per Share</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">EPS Fwd</p>
+                        <p id="ki-eps-fwd" class="text-white font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Forward EPS</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">BVPS</p>
+                        <p id="ki-bvps" class="text-white font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Book Value/Share</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">CFPS</p>
+                        <p id="ki-cfps" class="text-white font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Cash Flow/Share</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="ki-panel-margenes" class="ki-panel hidden">
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between">
+                        <span class="text-gray-400 text-xs w-36">Net Margin</span>
+                        <div class="flex-1 mx-3 bg-gray-700 rounded-full h-2 overflow-hidden">
+                            <div id="bar-net-margin" class="h-2 rounded-full bg-blue-500 transition-all duration-700" style="width:0%"></div>
+                        </div>
+                        <span id="ki-net-margin" class="font-mono text-white text-xs w-16 text-right">—</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-gray-400 text-xs w-36">Gross Margin</span>
+                        <div class="flex-1 mx-3 bg-gray-700 rounded-full h-2 overflow-hidden">
+                            <div id="bar-gross-margin" class="h-2 rounded-full bg-green-500 transition-all duration-700" style="width:0%"></div>
+                        </div>
+                        <span id="ki-gross-margin" class="font-mono text-white text-xs w-16 text-right">—</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-gray-400 text-xs w-36">Operating Margin</span>
+                        <div class="flex-1 mx-3 bg-gray-700 rounded-full h-2 overflow-hidden">
+                            <div id="bar-op-margin" class="h-2 rounded-full bg-teal-500 transition-all duration-700" style="width:0%"></div>
+                        </div>
+                        <span id="ki-op-margin" class="font-mono text-white text-xs w-16 text-right">—</span>
+                    </div>
+                    <div class="flex items-center justify-between">
+                        <span class="text-gray-400 text-xs w-36">EBITDA Margin</span>
+                        <div class="flex-1 mx-3 bg-gray-700 rounded-full h-2 overflow-hidden">
+                            <div id="bar-ebitda-margin" class="h-2 rounded-full bg-purple-500 transition-all duration-700" style="width:0%"></div>
+                        </div>
+                        <span id="ki-ebitda-margin" class="font-mono text-white text-xs w-16 text-right">—</span>
+                    </div>
+                </div>
+            </div>
+
+            <div id="ki-panel-valoracion" class="ki-panel hidden">
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">P/E (TTM)</p>
+                        <p id="ki-pe-trailing" class="text-white font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Precio / Ganancia</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">P/E Fwd</p>
+                        <p id="ki-pe-forward" class="text-white font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Forward P/E</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">P/B</p>
+                        <p id="ki-pb" class="text-white font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Price to Book</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">PEG</p>
+                        <p id="ki-peg" class="text-white font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">P/E to Growth</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">Current Ratio</p>
+                        <p id="ki-current-ratio" class="text-white font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Liquidez corriente</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">D/E Ratio</p>
+                        <p id="ki-de" class="text-white font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Deuda / Equity</p>
+                    </div>
+                </div>
+            </div>
+
+            <div id="ki-panel-deuda" class="ki-panel hidden">
+                <div class="space-y-4">
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-gray-400">Debt to Asset</span>
+                            <span id="ki-dta" class="font-mono text-white">—</span>
+                        </div>
+                        <div class="bg-gray-700 rounded-full h-3 overflow-hidden">
+                            <div id="bar-dta" class="h-3 rounded-full transition-all duration-700 bg-gradient-to-r from-green-500 via-yellow-500 to-red-500" style="width:0%"></div>
+                        </div>
+                        <div class="flex justify-between text-[9px] text-gray-600 mt-0.5">
+                            <span>Bajo riesgo</span><span>Alto riesgo</span>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="flex justify-between text-xs mb-1">
+                            <span class="text-gray-400">Debt to Equity</span>
+                            <span id="ki-de2" class="font-mono text-white">—</span>
+                        </div>
+                        <div class="bg-gray-700 rounded-full h-3 overflow-hidden">
+                            <div id="bar-de2" class="h-3 rounded-full transition-all duration-700 bg-orange-500" style="width:0%"></div>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-2 gap-3 mt-2">
+                        <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                            <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">Current Ratio</p>
+                            <p id="ki-cr2" class="text-white font-mono font-bold text-lg">—</p>
+                            <p class="text-gray-600 text-[9px] mt-0.5">Liquidez</p>
+                        </div>
+                        <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                            <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">BVPS</p>
+                            <p id="ki-bvps2" class="text-white font-mono font-bold text-lg">—</p>
+                            <p class="text-gray-600 text-[9px] mt-0.5">Book Value/Share</p>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div id="ki-panel-crecimiento" class="ki-panel hidden">
+                <div class="grid grid-cols-2 gap-3">
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">Rev. Growth</p>
+                        <p id="ki-rev-growth" class="font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Crecimiento ingresos YoY</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">Earn. Growth</p>
+                        <p id="ki-earn-growth" class="font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Crecimiento ganancias YoY</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">EPS TTM</p>
+                        <p id="ki-eps2" class="text-white font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Actual</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700/50">
+                        <p class="text-gray-500 text-[10px] uppercase tracking-wider mb-1">EPS Forward</p>
+                        <p id="ki-eps-fwd2" class="text-white font-mono font-bold text-lg">—</p>
+                        <p class="text-gray-600 text-[9px] mt-0.5">Proyectado</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- ORDER BOOK + VOLUME PROFILE -->
+        <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h3 id="titulo-orderbook" class="text-blue-300 font-bold text-sm uppercase tracking-widest">Order Book</h3>
+                    <p class="text-gray-500 text-[10px] mt-0.5">Bid/Ask real · niveles estimados · volume profile intraday</p>
+                </div>
+                <div class="text-right">
+                    <p class="text-[10px] text-gray-500">Spread</p>
+                    <p id="ob-spread" class="font-mono text-yellow-400 text-sm font-bold">—</p>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-2 gap-3 mb-4">
+                <!-- ASKS (lado venta - arriba) -->
+                <div>
+                    <p class="text-red-400 text-[10px] font-bold uppercase tracking-wider mb-2 text-center">SELL · Asks</p>
+                    <div id="ob-asks" class="space-y-0.5 font-mono text-xs"></div>
+                </div>
+                <!-- BIDS (lado compra - abajo) -->
+                <div>
+                    <p class="text-green-400 text-[10px] font-bold uppercase tracking-wider mb-2 text-center">BUY · Bids</p>
+                    <div id="ob-bids" class="space-y-0.5 font-mono text-xs"></div>
+                </div>
+            </div>
+
+            <!-- Precio actual central -->
+            <div class="border-y border-gray-600 py-2 mb-4 text-center">
+                <span class="text-gray-400 text-[10px] mr-2">ÚLTIMO PRECIO</span>
+                <span id="ob-precio" class="text-white font-mono font-bold text-base">—</span>
+            </div>
+
+            <!-- Volume Profile intraday -->
+            <div>
+                <p class="text-blue-300 text-[10px] font-bold uppercase tracking-widest mb-2">Volume Profile · Intraday</p>
+                <div id="ob-volume-profile" class="space-y-1"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ── ROW 3: Calendario de Earnings ─────────────────────────────────── -->
+    <div class="mt-6 bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
+        <div class="flex justify-between items-center mb-4">
+            <div>
+                <h3 class="text-blue-300 font-bold text-sm uppercase tracking-widest">📅 Calendario de Eventos</h3>
+                <p class="text-gray-500 text-[10px] mt-1">Próximos reportes de resultados de tus activos · Hacé clic para ver el informe completo</p>
+            </div>
+            <button onclick="cargarCalendario()"
+                    class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded font-bold transition-all">
+                ↻ Actualizar
+            </button>
+        </div>
+        <div id="contenedor-calendario">
+            <p class="text-gray-500 italic text-center py-6 text-sm">Cargando calendario...</p>
+        </div>
+    </div>
+
+</div><!-- /container -->
+
+<script>
+// ═══════════════════════════════════════════════════════════════════════════
+// ESTADO GLOBAL
+// ═══════════════════════════════════════════════════════════════════════════
+let chartTorta    = null;
+let lwChart       = null;
+let chartMC       = null;
+let chartEpsModal = null;
+let datosActuales = [];
+let tickerActivo  = null;
+let periodoActivo = '1mo';
+let tipoGrafico   = 'linea';
+let diasMC        = 30;
+let logoCache     = {};
+let kiTabActivo   = 'rentabilidad';
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HELPERS UI
+// ═══════════════════════════════════════════════════════════════════════════
+function cerrarModal(id) {
+    document.getElementById(id).classList.add('hidden');
+}
+
+function activarBtnGrupo(selector, activoId) {
+    document.querySelectorAll(selector).forEach(b => {
+        b.classList.remove('bg-blue-600', 'text-white');
+        b.classList.add('text-gray-400');
+    });
+    const btn = document.getElementById(activoId);
+    if (btn) { btn.classList.remove('text-gray-400'); btn.classList.add('bg-blue-600', 'text-white'); }
+}
+
+function setStatus(online) {
+    const el = document.getElementById('status');
+    el.innerText = online ? "● Sistema Online" : "● Error de Conexión";
+    el.className = online
+        ? "text-green-400 font-bold px-3 py-1 bg-green-900/30 rounded-full text-sm"
+        : "text-red-400 font-bold px-3 py-1 bg-red-900/30 rounded-full text-sm";
+}
+
+function fmtCap(v) {
+    if (!v) return '—';
+    if (v >= 1e12) return `$${(v / 1e12).toFixed(2)}T`;
+    if (v >= 1e9)  return `$${(v / 1e9).toFixed(2)}B`;
+    if (v >= 1e6)  return `$${(v / 1e6).toFixed(2)}M`;
+    return `$${v.toLocaleString()}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CARGA DE DATOS
+// ═══════════════════════════════════════════════════════════════════════════
+async function cargarDatos() {
+    try {
+        const res = await fetch('http://127.0.0.1:8000/resumen');
+        datosActuales = await res.json();
+        renderTabla();
+        renderTorta();
+        if (datosActuales.length > 0 && !tickerActivo) {
+            seleccionarActivo(datosActuales[0].ticker);
+        }
+        setStatus(true);
+    } catch (e) {
+        setStatus(false);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TABLA DE CARTERA
+// ═══════════════════════════════════════════════════════════════════════════
+function logoImgHtml(ticker, size = '24') {
+    const url = logoCache[ticker];
+    if (url) return `<img src="${url}" class="w-${size === '24' ? '6' : '8'} h-${size === '24' ? '6' : '8'} rounded-full object-cover bg-gray-600" onerror="this.style.display='none'" />`;
+    return `<span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-800 text-white text-[9px] font-bold">${ticker.substring(0,2)}</span>`;
+}
+
+function renderTabla() {
+    const tabla = document.getElementById('tabla-cartera');
+    let vTotal = 0, gLatente = 0, gRealizado = 0;
+    tabla.innerHTML = '';
+
+    datosActuales.forEach(item => {
+        vTotal     += item.cantidad * item.precio_actual;
+        gLatente   += item.ganancia;
+        gRealizado += item.pnl_realizado || 0;
+        const color = item.ganancia >= 0 ? 'text-green-400' : 'text-red-400';
+        const pnlSign = item.ganancia >= 0 ? '+' : '';
+        tabla.innerHTML += `
+            <tr class="hover:bg-gray-700/50 cursor-pointer border-b border-gray-800 transition-colors"
+                onclick="seleccionarActivo('${item.ticker}')">
+                <td class="py-3 px-2">
+                    <div class="flex items-center gap-2">
+                        ${logoImgHtml(item.ticker)}
+                        <span class="font-bold text-blue-400">${item.ticker}</span>
+                    </div>
+                </td>
+                <td class="text-gray-300">${item.cantidad}</td>
+                <td class="font-mono">$${item.precio_actual.toFixed(2)}</td>
+                <td class="text-right font-bold font-mono ${color}">
+                    ${pnlSign}$${item.ganancia.toLocaleString(undefined, {minimumFractionDigits:2})}
+                </td>
+                <td class="text-center whitespace-nowrap">
+                    <button onclick="event.stopPropagation(); abrirModalVenta('${item.ticker}')"
+                            class="text-[10px] bg-red-900 hover:bg-red-700 px-2 py-1 rounded font-bold mr-1 transition-all">
+                        Vender
+                    </button>
+                    <button onclick="event.stopPropagation(); eliminarActivo('${item.ticker}')"
+                            class="text-[10px] bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded transition-all">
+                        🗑️
+                    </button>
+                </td>
+            </tr>`;
+    });
+
+    document.getElementById('valor-total').innerText =
+        `$${vTotal.toLocaleString(undefined, {minimumFractionDigits:2})}`;
+
+    const elLat  = document.getElementById('ganancia-total');
+    elLat.innerText = `$${gLatente.toLocaleString(undefined, {minimumFractionDigits:2})}`;
+    elLat.className = `text-2xl font-mono mt-1 font-bold ${gLatente >= 0 ? 'text-green-400' : 'text-red-400'}`;
+
+    const elReal = document.getElementById('pnl-realizado-total');
+    elReal.innerText = `$${gRealizado.toLocaleString(undefined, {minimumFractionDigits:2})}`;
+    elReal.className = `text-2xl font-mono mt-1 font-bold ${gRealizado >= 0 ? 'text-yellow-400' : 'text-red-400'}`;
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SELECCIÓN DE ACTIVO — carga todos los paneles en paralelo
+// ═══════════════════════════════════════════════════════════════════════════
+async function seleccionarActivo(ticker) {
+    tickerActivo = ticker;
+    document.getElementById('titulo-grafico').innerText    = `Evolución: ${ticker}`;
+    document.getElementById('titulo-noticias').innerText   = `Noticias: ${ticker}`;
+    document.getElementById('titulo-analisis').innerText   = `Análisis Técnico: ${ticker}`;
+    document.getElementById('titulo-montecarlo').innerText = `Monte Carlo: ${ticker}`;
+    document.getElementById('titulo-ia').innerText         = `IA Sentimiento: ${ticker}`;
+    document.getElementById('titulo-indicadores').innerText = `Key Indicators · ${ticker}`;
+    document.getElementById('titulo-orderbook').innerText  = `Order Book · ${ticker}`;
+    document.getElementById('seccion-analisis').style.display    = 'grid';
+    document.getElementById('seccion-indicadores').style.display = 'grid';
+
+    // Resaltar fila activa en tabla
+    document.querySelectorAll('#tabla-cartera tr').forEach(tr => tr.classList.remove('bg-blue-900/20'));
+    document.querySelectorAll('#tabla-cartera tr').forEach(tr => {
+        if (tr.querySelector('span.font-bold.text-blue-400')?.innerText === ticker)
+            tr.classList.add('bg-blue-900/20');
+    });
+
+    document.getElementById('contenedor-grafico').innerHTML =
+        '<p class="text-gray-500 text-center pt-24 text-sm animate-pulse">Cargando...</p>';
+
+    try {
+        const [velas, noticias, analisis, mc, ia, indicadores, orderbook] = await Promise.all([
+            fetch(`http://127.0.0.1:8000/velas/${ticker}?period=${periodoActivo}`).then(r => r.json()),
+            fetch(`http://127.0.0.1:8000/noticias/${ticker}`).then(r => r.json()),
+            fetch(`http://127.0.0.1:8000/analisis/${ticker}`).then(r => r.json()),
+            fetch(`http://127.0.0.1:8000/montecarlo/${ticker}?dias=${diasMC}`).then(r => r.json()),
+            fetch(`http://127.0.0.1:8000/ia/${ticker}`).then(r => r.json()),
+            fetch(`http://127.0.0.1:8000/indicadores/${ticker}`).then(r => r.json()),
+            fetch(`http://127.0.0.1:8000/orderbook/${ticker}`).then(r => r.json()),
+        ]);
+        renderGrafico(velas);
+        renderNoticias(noticias);
+        renderAnalisis(analisis);
+        renderMonteCarlo(mc);
+        renderIA(ia);
+        renderIndicadores(indicadores);
+        renderOrderBook(orderbook);
+    } catch(e) {
+        console.error(e);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KEY INDICATORS
+// ═══════════════════════════════════════════════════════════════════════════
+function kiTab(tab) {
+    kiTabActivo = tab;
+    document.querySelectorAll('.ki-tab').forEach(b => {
+        b.classList.remove('bg-blue-600','text-white');
+        b.classList.add('text-gray-400','bg-gray-700');
+    });
+    const btn = document.getElementById(`ki-tab-${tab}`);
+    if (btn) { btn.classList.add('bg-blue-600','text-white'); btn.classList.remove('text-gray-400','bg-gray-700'); }
+    document.querySelectorAll('.ki-panel').forEach(p => p.classList.add('hidden'));
+    const panel = document.getElementById(`ki-panel-${tab}`);
+    if (panel) panel.classList.remove('hidden');
+}
+
+function fmtPct(v) {
+    if (v == null) return '—';
+    const val = (v * 100).toFixed(2);
+    return `<span class="${v >= 0 ? 'text-green-400' : 'text-red-400'}">${v >= 0 ? '+' : ''}${val}%</span>`;
+}
+function fmtNum(v, prefix='', suffix='', decimals=2) {
+    if (v == null) return '—';
+    return `${prefix}${Number(v).toFixed(decimals)}${suffix}`;
+}
+
+function renderIndicadores(d) {
+    if (!d || d.error) return;
+
+    // Logo en el panel
+    const logoBox = document.getElementById('ki-logo-box');
+    if (d.logo_url) {
+        logoBox.innerHTML = `<img src="${d.logo_url}" class="w-10 h-10 object-contain rounded-lg" onerror="this.parentElement.innerHTML='<span class=text-gray-500 text-xs>${d.ticker}</span>'" />`;
+        // Guardar en cache para la tabla
+        if (!logoCache[d.ticker]) {
+            logoCache[d.ticker] = d.logo_url;
+            // re-render tabla con logos
+            renderTabla();
+            // Recalcular totales sin perderlos
+            let vTotal=0, gL=0, gR=0;
+            datosActuales.forEach(i => { vTotal+=i.cantidad*i.precio_actual; gL+=i.ganancia; gR+=i.pnl_realizado||0; });
+            document.getElementById('valor-total').innerText = `$${vTotal.toLocaleString(undefined,{minimumFractionDigits:2})}`;
+        }
+    } else {
+        logoBox.innerHTML = `<span class="text-gray-400 text-xs font-bold">${d.ticker}</span>`;
+    }
+
+    // Rentabilidad
+    document.getElementById('ki-roa').innerHTML      = fmtPct(d.roa);
+    document.getElementById('ki-roe').innerHTML      = fmtPct(d.roe);
+    document.getElementById('ki-eps-ttm').innerText  = fmtNum(d.eps_ttm, '$', '', 4);
+    document.getElementById('ki-eps-fwd').innerText  = fmtNum(d.eps_forward, '$', '', 4);
+    document.getElementById('ki-bvps').innerText     = fmtNum(d.bvps, '$');
+    document.getElementById('ki-cfps').innerText     = fmtNum(d.cfps, '$', '', 4);
+
+    // Márgenes con barras
+    const setMargin = (id, barId, v) => {
+        document.getElementById(id).innerHTML = fmtPct(v);
+        const pct = v != null ? Math.min(Math.max(v * 100, 0), 100) : 0;
+        document.getElementById(barId).style.width = pct + '%';
+    };
+    setMargin('ki-net-margin',    'bar-net-margin',    d.net_margin);
+    setMargin('ki-gross-margin',  'bar-gross-margin',  d.gross_margin);
+    setMargin('ki-op-margin',     'bar-op-margin',     d.operating_margin);
+    setMargin('ki-ebitda-margin', 'bar-ebitda-margin', d.ebitda_margin);
+
+    // Valoración
+    document.getElementById('ki-pe-trailing').innerText  = fmtNum(d.pe_trailing, '', 'x');
+    document.getElementById('ki-pe-forward').innerText   = fmtNum(d.pe_forward, '', 'x');
+    document.getElementById('ki-pb').innerText           = fmtNum(d.price_to_book, '', 'x');
+    document.getElementById('ki-peg').innerText          = fmtNum(d.peg_ratio, '', 'x');
+    document.getElementById('ki-current-ratio').innerText = fmtNum(d.current_ratio);
+    document.getElementById('ki-de').innerText           = fmtNum(d.debt_to_equity);
+
+    // Deuda
+    const dtaVal = d.debt_to_asset;
+    document.getElementById('ki-dta').innerText  = dtaVal != null ? (dtaVal * 100).toFixed(1) + '%' : '—';
+    document.getElementById('bar-dta').style.width = dtaVal != null ? Math.min(dtaVal * 100, 100) + '%' : '0%';
+    const deVal = d.debt_to_equity;
+    document.getElementById('ki-de2').innerText  = fmtNum(deVal);
+    document.getElementById('bar-de2').style.width = deVal != null ? Math.min(deVal / 3 * 100, 100) + '%' : '0%';
+    document.getElementById('ki-cr2').innerText   = fmtNum(d.current_ratio);
+    document.getElementById('ki-bvps2').innerText = fmtNum(d.bvps, '$');
+
+    // Crecimiento
+    document.getElementById('ki-rev-growth').innerHTML  = fmtPct(d.revenue_growth);
+    document.getElementById('ki-earn-growth').innerHTML = fmtPct(d.earnings_growth);
+    document.getElementById('ki-eps2').innerText        = fmtNum(d.eps_ttm, '$', '', 4);
+    document.getElementById('ki-eps-fwd2').innerText    = fmtNum(d.eps_forward, '$', '', 4);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ORDER BOOK + VOLUME PROFILE
+// ═══════════════════════════════════════════════════════════════════════════
+function renderOrderBook(d) {
+    if (!d || d.error) return;
+
+    document.getElementById('ob-spread').innerText  = d.spread > 0 ? `$${d.spread.toFixed(4)}` : '—';
+    document.getElementById('ob-precio').innerText  = `$${d.precio_actual.toFixed(2)}`;
+
+    // Asks (mostrar de mayor a menor para que el más bajo quede cerca del precio)
+    const asksDiv = document.getElementById('ob-asks');
+    const asksSorted = [...d.asks].reverse();
+    const maxVolAsk  = Math.max(...d.asks.map(a => a.volumen), 1);
+    asksDiv.innerHTML = asksSorted.map(a => {
+        const barW = Math.round(a.volumen / maxVolAsk * 100);
+        return `<div class="relative flex justify-between items-center px-2 py-0.5 rounded overflow-hidden">
+            <div class="absolute inset-0 bg-red-900/30" style="width:${barW}%"></div>
+            <span class="relative text-red-400 z-10">${a.precio.toFixed(2)}</span>
+            <span class="relative text-gray-300 z-10">${a.volumen.toLocaleString()}</span>
+        </div>`;
+    }).join('');
+
+    // Bids (mostrar de mayor a menor precio, el mejor bid primero)
+    const bidsDiv = document.getElementById('ob-bids');
+    const maxVolBid  = Math.max(...d.bids.map(b => b.volumen), 1);
+    bidsDiv.innerHTML = d.bids.map(b => {
+        const barW = Math.round(b.volumen / maxVolBid * 100);
+        return `<div class="relative flex justify-between items-center px-2 py-0.5 rounded overflow-hidden">
+            <div class="absolute inset-0 bg-green-900/30" style="width:${barW}%"></div>
+            <span class="relative text-green-400 z-10">${b.precio.toFixed(2)}</span>
+            <span class="relative text-gray-300 z-10">${b.volumen.toLocaleString()}</span>
+        </div>`;
+    }).join('');
+
+    // Volume Profile intraday
+    const vpDiv = document.getElementById('ob-volume-profile');
+    if (!d.volume_profile || d.volume_profile.length === 0) {
+        vpDiv.innerHTML = '<p class="text-gray-600 text-[10px] text-center">Sin datos intraday disponibles</p>';
+        return;
+    }
+    const maxPct = Math.max(...d.volume_profile.map(v => v.pct), 1);
+    // Precio actual para marcar el nivel
+    const pa = d.precio_actual;
+    vpDiv.innerHTML = d.volume_profile.slice().reverse().map(v => {
+        const isActive = Math.abs(v.precio - pa) <= (pa * 0.005);
+        const barColor = isActive ? 'bg-yellow-400' : (v.precio > pa ? 'bg-red-500/60' : 'bg-green-500/60');
+        const txtColor = isActive ? 'text-yellow-300 font-bold' : 'text-gray-400';
+        return `<div class="flex items-center gap-2 py-0.5 ${isActive ? 'bg-yellow-900/20 rounded' : ''}">
+            <span class="${txtColor} text-[10px] w-14 text-right font-mono">${v.precio.toFixed(2)}</span>
+            <div class="flex-1 bg-gray-700/50 rounded h-2 overflow-hidden">
+                <div class="${barColor} h-2 rounded transition-all duration-500" style="width:${v.pct}%"></div>
+            </div>
+            <span class="text-gray-500 text-[9px] w-20 text-right">${(v.volumen/1000).toFixed(1)}K</span>
+        </div>`;
+    }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GRÁFICO PRINCIPAL (lightweight-charts)
+// ═══════════════════════════════════════════════════════════════════════════
+function renderGrafico(datos) {
+    const contenedor = document.getElementById('contenedor-grafico');
+    if (lwChart) { lwChart.remove(); lwChart = null; }
+    contenedor.innerHTML = '';
+
+    if (!datos || datos.length === 0) {
+        contenedor.innerHTML = '<p class="text-gray-500 text-center pt-20">Sin datos disponibles.</p>';
+        return;
+    }
+
+    lwChart = LightweightCharts.createChart(contenedor, {
+        layout:    { background: { color: 'transparent' }, textColor: '#9ca3af' },
+        grid:      { vertLines: { color: '#1f2937' }, horzLines: { color: '#1f2937' } },
+        crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+        rightPriceScale: { borderColor: '#374151' },
+        timeScale:       { borderColor: '#374151' },
+        width:  contenedor.clientWidth,
+        height: 260,
+    });
+
+    if (tipoGrafico === 'linea') {
+        const serie = lwChart.addLineSeries({ color: '#3b82f6', lineWidth: 2 });
+        serie.setData(datos.map(d => ({ time: d.time, value: d.close })));
+    } else {
+        const serie = lwChart.addCandlestickSeries({
+            upColor:         '#10b981', downColor:       '#ef4444',
+            borderUpColor:   '#10b981', borderDownColor: '#ef4444',
+            wickUpColor:     '#10b981', wickDownColor:   '#ef4444',
+        });
+        serie.setData(datos.map(d => ({
+            time: d.time, open: d.open, high: d.high, low: d.low, close: d.close,
+        })));
+    }
+    lwChart.timeScale().fitContent();
+}
+
+async function cambiarPeriodo(period) {
+    periodoActivo = period;
+    const map = {'5d':'btn-5d','1mo':'btn-1mo','3mo':'btn-3mo','1y':'btn-1y'};
+    activarBtnGrupo('.btn-periodo', map[period]);
+    if (!tickerActivo) return;
+    const velas = await fetch(`http://127.0.0.1:8000/velas/${tickerActivo}?period=${period}`).then(r => r.json());
+    renderGrafico(velas);
+}
+
+async function cambiarTipoGrafico(tipo) {
+    tipoGrafico = tipo;
+    activarBtnGrupo('.btn-tipo', tipo === 'linea' ? 'btn-linea' : 'btn-velas');
+    if (!tickerActivo) return;
+    const velas = await fetch(`http://127.0.0.1:8000/velas/${tickerActivo}?period=${periodoActivo}`).then(r => r.json());
+    renderGrafico(velas);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// DISTRIBUCIÓN (doughnut)
+// ═══════════════════════════════════════════════════════════════════════════
+function renderTorta() {
+    const ctx = document.getElementById('graficoTorta').getContext('2d');
+    if (chartTorta) chartTorta.destroy();
+    chartTorta = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels: datosActuales.map(d => d.ticker),
+            datasets: [{
+                data: datosActuales.map(d => d.cantidad * d.precio_actual),
+                backgroundColor: ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4','#f97316'],
+                borderWidth: 0,
+            }]
+        },
+        options: {
+            plugins: { legend: { display: true, labels: { color: '#9ca3af', font: { size: 10 }, boxWidth: 12, padding: 10 } } },
+            maintainAspectRatio: false,
+            cutout: '65%',
+        }
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// NOTICIAS
+// ═══════════════════════════════════════════════════════════════════════════
+function renderNoticias(resN) {
+    const cont = document.getElementById('contenedor-noticias');
+    if (!resN || resN.length === 0) {
+        cont.innerHTML = '<p class="text-gray-500 italic text-center">No hay noticias recientes.</p>';
+    } else {
+        cont.innerHTML = resN.map(n => `
+            <div class="border-b border-gray-700 pb-2 hover:bg-gray-700/20 p-1 rounded transition-colors">
+                <a href="${n.link}" target="_blank" rel="noopener noreferrer"
+                   class="hover:text-blue-400 font-semibold block leading-tight">${n.titulo}</a>
+                <p class="text-[9px] text-gray-500 mt-1 uppercase">${n.fuente}</p>
+            </div>`).join('');
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ANÁLISIS TÉCNICO
+// ═══════════════════════════════════════════════════════════════════════════
+function renderAnalisis(data) {
+    if (!data || data.error) return;
+    document.getElementById('val-sma20').innerText = `$${data.sma20}`;
+    document.getElementById('val-sma50').innerText = `$${data.sma50}`;
+    document.getElementById('val-beta').innerText  = data.beta;
+
+    const rsiEl = document.getElementById('val-rsi');
+    rsiEl.innerText = data.rsi;
+    rsiEl.className = `font-mono font-bold ${
+        data.rsi > 70 ? 'text-red-400' : data.rsi < 30 ? 'text-green-400' : 'text-white'
+    }`;
+
+    const badge    = document.getElementById('badge-tendencia');
+    const colorMap = { 'ALCISTA':'bg-green-900 text-green-300', 'BAJISTA':'bg-red-900 text-red-300', 'LATERAL':'bg-yellow-900 text-yellow-300' };
+    badge.innerText = data.tendencia;
+    badge.className = `text-xs font-bold px-2 py-1 rounded-full ${colorMap[data.tendencia] || 'bg-gray-600'}`;
+
+    dibujarGauge(data.volatilidad);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// GAUGE DE VOLATILIDAD
+// ═══════════════════════════════════════════════════════════════════════════
+function dibujarGauge(volatilidad) {
+    const canvas = document.getElementById('gauge-volatilidad');
+    const ctx = canvas.getContext('2d');
+    const cx = canvas.width / 2, cy = Math.floor(canvas.height * 0.82), r = 72;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, Math.PI, 2 * Math.PI);
+    ctx.strokeStyle = '#374151'; ctx.lineWidth = 16; ctx.lineCap = 'round'; ctx.stroke();
+
+    const pct      = Math.min(volatilidad / 80, 1);
+    const endAngle = Math.PI + pct * Math.PI;
+    const color    = pct <= 0.5 ? '#10b981' : pct <= 0.75 ? '#f59e0b' : '#ef4444';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, Math.PI, endAngle);
+    ctx.strokeStyle = color; ctx.lineWidth = 16; ctx.lineCap = 'round'; ctx.stroke();
+
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 20px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(`${volatilidad}%`, cx, cy - 6);
+    ctx.fillStyle = '#9ca3af'; ctx.font = '9px sans-serif';
+    ctx.fillText('Vol. Anualizada', cx, cy + 10);
+    ctx.font = '8px sans-serif';
+    ctx.textAlign = 'left';  ctx.fillText('BAJO', cx - r - 8, cy + 4);
+    ctx.textAlign = 'right'; ctx.fillText('ALTO', cx + r + 8, cy + 4);
+
+    const labelEl = document.getElementById('label-riesgo');
+    if      (pct <= 0.5)  { labelEl.innerText = '● Riesgo Bajo';     labelEl.className = 'text-xs font-bold uppercase mt-2 text-green-400'; }
+    else if (pct <= 0.75) { labelEl.innerText = '● Riesgo Moderado'; labelEl.className = 'text-xs font-bold uppercase mt-2 text-yellow-400'; }
+    else                  { labelEl.innerText = '● Riesgo Alto';     labelEl.className = 'text-xs font-bold uppercase mt-2 text-red-400'; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MONTE CARLO
+// ═══════════════════════════════════════════════════════════════════════════
+async function cambiarDiasMC(dias) {
+    diasMC = dias;
+    ['btn-mc-30','btn-mc-60','btn-mc-90'].forEach(id => {
+        const b = document.getElementById(id);
+        b.classList.remove('bg-blue-600','text-white'); b.classList.add('text-gray-400');
+    });
+    const btn = document.getElementById(`btn-mc-${dias}`);
+    btn.classList.remove('text-gray-400'); btn.classList.add('bg-blue-600','text-white');
+    if (!tickerActivo) return;
+    const mc = await fetch(`http://127.0.0.1:8000/montecarlo/${tickerActivo}?dias=${dias}`).then(r => r.json());
+    renderMonteCarlo(mc);
+}
+
+function renderMonteCarlo(data) {
+    if (!data || data.error) return;
+    const ctx = document.getElementById('grafico-montecarlo').getContext('2d');
+    if (chartMC) chartMC.destroy();
+    chartMC = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: data.dias.map(d => `D+${d}`),
+            datasets: [
+                { label:'P95', data:data.p95, borderColor:'rgba(16,185,129,0.7)', backgroundColor:'rgba(59,130,246,0.06)', fill:'+1', tension:0.4, pointRadius:0, borderWidth:1.5, borderDash:[4,3] },
+                { label:'P5',  data:data.p5,  borderColor:'rgba(239,68,68,0.7)',  backgroundColor:'transparent', fill:false, tension:0.4, pointRadius:0, borderWidth:1.5, borderDash:[4,3] },
+                { label:'P50', data:data.p50, borderColor:'#3b82f6', backgroundColor:'transparent', fill:false, tension:0.4, pointRadius:0, borderWidth:2.5 },
+            ]
+        },
+        options: {
+            plugins: { legend:{ labels:{ color:'#9ca3af', font:{size:9}, boxWidth:10, padding:8 } }, tooltip:{ mode:'index', intersect:false } },
+            scales: {
+                x: { grid:{color:'#1f2937'}, ticks:{color:'#666', font:{size:9}, maxTicksLimit:8} },
+                y: { grid:{color:'#1f2937'}, ticks:{color:'#666', font:{size:9}} }
+            },
+            maintainAspectRatio: false,
+        }
+    });
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// PANEL IA / SENTIMIENTO
+// ═══════════════════════════════════════════════════════════════════════════
+function renderIA(data) {
+    if (!data || data.error) return;
+
+    const score = data.score;
+    const upside = data.upside_pct;
+
+    // Gauge semicircular IA
+    dibujarGaugeIA(score);
+
+    // Label
+    const labelEl = document.getElementById('ia-label');
+    const labelStyles = {
+        'COMPRAR':               'bg-green-900 text-green-300',
+        'PERSPECTIVA POSITIVA':  'bg-teal-900 text-teal-300',
+        'NEUTRAL':               'bg-yellow-900 text-yellow-300',
+        'PRECAUCIÓN':            'bg-orange-900 text-orange-300',
+        'VENDER':                'bg-red-900 text-red-300',
+    };
+    labelEl.innerText = data.label;
+    labelEl.className = `mt-2 text-xs font-bold uppercase tracking-widest px-3 py-1 rounded-full ${labelStyles[data.label] || 'bg-gray-700 text-gray-300'}`;
+
+    // Barra
+    const barColor = score >= 60 ? 'bg-green-500' : score >= 40 ? 'bg-yellow-500' : 'bg-red-500';
+    const barra = document.getElementById('ia-barra');
+    barra.style.width  = `${score}%`;
+    barra.className    = `h-2.5 rounded-full transition-all duration-700 ${barColor}`;
+    document.getElementById('ia-score-txt').innerText = `${score}/100`;
+
+    // Upside
+    const upsideEl = document.getElementById('ia-upside');
+    upsideEl.innerText = upside >= 0 ? `+${upside.toFixed(1)}%` : `${upside.toFixed(1)}%`;
+    upsideEl.className = `font-mono font-bold ${upside >= 0 ? 'text-green-400' : 'text-red-400'}`;
+
+    // Targets
+    document.getElementById('ia-target-medio').innerText = data.target_medio ? `$${data.target_medio}` : '—';
+    document.getElementById('ia-target-bajo').innerText  = data.target_bajo  ? `$${data.target_bajo}`  : '—';
+    document.getElementById('ia-target-alto').innerText  = data.target_alto  ? `$${data.target_alto}`  : '—';
+
+    // Breakdown analistas
+    const bd = data.breakdown;
+    const total = bd.strongBuy + bd.buy + bd.hold + bd.sell + bd.strongSell;
+    const cont  = document.getElementById('ia-breakdown');
+    if (total === 0) {
+        cont.innerHTML = `<p class="text-gray-500 text-center text-[10px]">${data.n_analistas} analistas · sin detalle</p>`;
+    } else {
+        const pct = v => Math.round(v / total * 100);
+        const barItem = (label, val, color) => `
+            <div class="flex items-center gap-2">
+                <span class="w-16 text-right text-gray-400">${label}</span>
+                <div class="flex-1 bg-gray-700 rounded-full h-1.5 overflow-hidden">
+                    <div class="${color} h-1.5 rounded-full" style="width:${pct(val)}%"></div>
+                </div>
+                <span class="w-6 text-right text-gray-400">${val}</span>
+            </div>`;
+        cont.innerHTML = `
+            <p class="text-gray-500 text-center text-[10px] mb-2">${data.n_analistas} analistas</p>
+            ${barItem('Compra F.', bd.strongBuy, 'bg-green-500')}
+            ${barItem('Compra',    bd.buy,       'bg-green-700')}
+            ${barItem('Mantener',  bd.hold,      'bg-yellow-600')}
+            ${barItem('Venta',     bd.sell,      'bg-red-700')}
+            ${barItem('Venta F.',  bd.strongSell,'bg-red-500')}
+        `;
+    }
+}
+
+function dibujarGaugeIA(score) {
+    const canvas = document.getElementById('gauge-ia');
+    const ctx = canvas.getContext('2d');
+    const cx = canvas.width / 2, cy = Math.floor(canvas.height * 0.88), r = 52;
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, Math.PI, 2 * Math.PI);
+    ctx.strokeStyle = '#374151'; ctx.lineWidth = 12; ctx.lineCap = 'round'; ctx.stroke();
+
+    const pct      = score / 100;
+    const endAngle = Math.PI + pct * Math.PI;
+    const color    = score >= 60 ? '#10b981' : score >= 40 ? '#f59e0b' : '#ef4444';
+    ctx.beginPath();
+    ctx.arc(cx, cy, r, Math.PI, endAngle);
+    ctx.strokeStyle = color; ctx.lineWidth = 12; ctx.lineCap = 'round'; ctx.stroke();
+
+    ctx.fillStyle = '#ffffff'; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center';
+    ctx.fillText(`${score}`, cx, cy - 4);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CALENDARIO DE EARNINGS
+// ═══════════════════════════════════════════════════════════════════════════
+async function cargarCalendario() {
+    const cont = document.getElementById('contenedor-calendario');
+    cont.innerHTML = '<p class="text-gray-500 text-center py-6 text-sm animate-pulse">Consultando fechas de earnings...</p>';
+    try {
+        const eventos = await fetch('http://127.0.0.1:8000/calendario').then(r => r.json());
+        if (!eventos || eventos.length === 0) {
+            cont.innerHTML = '<p class="text-gray-500 italic text-center py-6">No se encontraron earnings próximos para los activos en cartera.</p>';
+            return;
+        }
+        cont.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
+            ${eventos.map(ev => {
+                const fecha   = new Date(ev.fecha + 'T12:00:00');
+                const diaNum  = fecha.toLocaleDateString('es-AR', { day:'numeric' });
+                const mes     = fecha.toLocaleDateString('es-AR', { month:'short' }).toUpperCase();
+                const epsStr  = ev.eps_estimado != null ? `EPS est. <span class="font-bold text-white">$${ev.eps_estimado}</span>` : 'Sin datos EPS';
+                const revStr  = ev.revenue_estimado != null
+                    ? `Rev. est. <span class="font-bold text-yellow-300">${fmtCap(ev.revenue_estimado)}</span>`
+                    : '';
+                return `
+                <div onclick="abrirEarningsModal('${ev.ticker}')"
+                     class="bg-gray-900/60 border border-gray-700 rounded-xl p-4 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all group">
+                    <div class="flex items-start justify-between mb-2">
+                        <span class="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded">${ev.ticker}</span>
+                        <div class="text-right">
+                            <p class="text-white font-bold text-lg leading-none">${diaNum}</p>
+                            <p class="text-gray-400 text-[10px]">${mes}</p>
+                        </div>
+                    </div>
+                    <p class="text-[10px] text-gray-400 mt-2">${epsStr}</p>
+                    ${revStr ? `<p class="text-[10px] text-gray-500 mt-1">${revStr}</p>` : ''}
+                    <p class="text-[9px] text-blue-400 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                        Ver informe completo →
+                    </p>
+                </div>`;
+            }).join('')}
+        </div>`;
+    } catch(e) {
+        cont.innerHTML = '<p class="text-red-400 italic text-center py-6">Error al cargar el calendario.</p>';
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MODAL — REPORTE EARNINGS
+// ═══════════════════════════════════════════════════════════════════════════
+async function abrirEarningsModal(ticker) {
+    document.getElementById('modal-earnings').classList.remove('hidden');
+    document.getElementById('er-nombre').innerText = `Cargando ${ticker}...`;
+    ['er-industria','er-sector','er-descripcion','er-prox-fecha',
+     'er-eps-bajo','er-eps-medio','er-eps-alto','er-rev-est',
+     'er-pe-trailing','er-pe-forward','er-eps-ttm','er-market-cap',
+     'er-dividendo','er-rango52','er-target-bajo','er-target-medio',
+     'er-target-alto','er-n-analistas'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = '—';
+    });
+
+    try {
+        const d = await fetch(`http://127.0.0.1:8000/earnings/${ticker}`).then(r => r.json());
+        if (d.error) { document.getElementById('er-nombre').innerText = 'Error al cargar datos'; return; }
+
+        document.getElementById('er-nombre').innerText     = d.nombre || ticker;
+        document.getElementById('er-industria').innerText  = d.industria || '—';
+        document.getElementById('er-sector').innerText     = d.sector    || '—';
+        document.getElementById('er-descripcion').innerText = d.descripcion || '';
+
+        document.getElementById('er-prox-fecha').innerText = d.prox_earnings_fecha || 'Sin fecha';
+        document.getElementById('er-eps-bajo').innerText   = d.prox_eps_bajo  != null ? `$${d.prox_eps_bajo}`  : '—';
+        document.getElementById('er-eps-medio').innerText  = d.prox_eps_medio != null ? `$${d.prox_eps_medio}` : '—';
+        document.getElementById('er-eps-alto').innerText   = d.prox_eps_alto  != null ? `$${d.prox_eps_alto}`  : '—';
+        document.getElementById('er-rev-est').innerText    = d.prox_rev_est   != null ? fmtCap(d.prox_rev_est) : '—';
+
+        document.getElementById('er-pe-trailing').innerText = d.pe_trailing != null ? `${d.pe_trailing}x`  : '—';
+        document.getElementById('er-pe-forward').innerText  = d.pe_forward  != null ? `${d.pe_forward}x`   : '—';
+        document.getElementById('er-eps-ttm').innerText     = d.eps_ttm     != null ? `$${d.eps_ttm}`      : '—';
+        document.getElementById('er-market-cap').innerText  = fmtCap(d.market_cap);
+        document.getElementById('er-dividendo').innerText   = d.dividendo_pct != null ? `${d.dividendo_pct}%` : '—';
+        document.getElementById('er-rango52').innerText     = (d.low_52w && d.high_52w) ? `$${d.low_52w} – $${d.high_52w}` : '—';
+
+        document.getElementById('er-target-bajo').innerText  = d.target_bajo  != null ? `$${d.target_bajo}`  : '—';
+        document.getElementById('er-target-medio').innerText = d.target_medio != null ? `$${d.target_medio}` : '—';
+        document.getElementById('er-target-alto').innerText  = d.target_alto  != null ? `$${d.target_alto}`  : '—';
+        document.getElementById('er-n-analistas').innerText  = d.n_analistas  ?? '—';
+
+        // EPS histórico
+        const eps = d.eps_historico || [];
+        const tabla = document.getElementById('er-tabla-eps');
+        tabla.innerHTML = eps.length === 0
+            ? '<tr><td colspan="4" class="py-4 text-center text-gray-500">Sin historial disponible</td></tr>'
+            : eps.map(e => {
+                const sorpresaColor = e.sorpresa == null ? 'text-gray-400'
+                    : e.sorpresa >= 0 ? 'text-green-400' : 'text-red-400';
+                return `<tr class="border-b border-gray-800">
+                    <td class="py-2 text-gray-300">${e.fecha}</td>
+                    <td class="text-right font-mono">${e.estimado != null ? '$' + e.estimado : '—'}</td>
+                    <td class="text-right font-mono font-bold">${e.real != null ? '$' + e.real : '—'}</td>
+                    <td class="text-right font-mono ${sorpresaColor}">
+                        ${e.sorpresa != null ? (e.sorpresa >= 0 ? '+' : '') + e.sorpresa + '%' : '—'}
+                    </td>
+                </tr>`;
+            }).join('');
+
+        // Chart EPS
+        if (chartEpsModal) chartEpsModal.destroy();
+        const ctxEps = document.getElementById('er-chart-eps').getContext('2d');
+        chartEpsModal = new Chart(ctxEps, {
+            type: 'bar',
+            data: {
+                labels: eps.map(e => e.fecha),
+                datasets: [
+                    { label:'Estimado', data:eps.map(e => e.estimado), backgroundColor:'rgba(59,130,246,0.5)', borderRadius:3 },
+                    { label:'Real',     data:eps.map(e => e.real),     backgroundColor:eps.map(e =>
+                        e.real == null ? 'transparent'
+                        : e.real >= (e.estimado || 0) ? 'rgba(16,185,129,0.8)' : 'rgba(239,68,68,0.8)'),
+                        borderRadius:3 },
+                ]
+            },
+            options: {
+                plugins: { legend:{ labels:{ color:'#9ca3af', font:{size:9}, boxWidth:10 } } },
+                scales: {
+                    x: { grid:{color:'#1f2937'}, ticks:{color:'#666', font:{size:8}} },
+                    y: { grid:{color:'#1f2937'}, ticks:{color:'#666', font:{size:8}} }
+                },
+                maintainAspectRatio: false,
+            }
+        });
+
+    } catch(e) {
+        document.getElementById('er-nombre').innerText = 'Error al cargar datos';
+        console.error(e);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MODAL — VENTA
+// ═══════════════════════════════════════════════════════════════════════════
+function abrirModalVenta(ticker) {
+    document.getElementById('venta-ticker').value   = ticker;
+    document.getElementById('venta-cantidad').value = '';
+    document.getElementById('venta-precio').value   = '';
+    document.getElementById('modal-venta').classList.remove('hidden');
+}
+
+async function confirmarVenta() {
+    const ticker   = document.getElementById('venta-ticker').value;
+    const cantidad = parseFloat(document.getElementById('venta-cantidad').value);
+    const precio   = parseFloat(document.getElementById('venta-precio').value);
+    if (!ticker || !cantidad || !precio || cantidad <= 0 || precio <= 0) {
+        alert('Completá todos los campos con valores válidos.');
+        return;
+    }
+    const res  = await fetch('http://127.0.0.1:8000/vender', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ ticker, cantidad, precio_unitario: precio }),
+    });
+    const data = await res.json();
+    if (data.status === 'success') { cerrarModal('modal-venta'); cargarDatos(); }
+    else alert('Error al registrar la venta: ' + (data.message || ''));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPRA
+// ═══════════════════════════════════════════════════════════════════════════
+async function enviarCompra() {
+    const t = document.getElementById('input-ticker').value.trim();
+    const c = document.getElementById('input-cantidad').value;
+    const p = document.getElementById('input-precio').value;
+    if (!t || !c || !p) return;
+    await fetch('http://127.0.0.1:8000/comprar', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ ticker: t.toUpperCase(), cantidad: parseFloat(c), precio_unitario: parseFloat(p) }),
+    });
+    document.getElementById('input-ticker').value   = '';
+    document.getElementById('input-cantidad').value = '';
+    document.getElementById('input-precio').value   = '';
+    cargarDatos();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ELIMINAR
+// ═══════════════════════════════════════════════════════════════════════════
+async function eliminarActivo(t) {
+    if (!confirm(`¿Eliminar TODAS las operaciones de ${t}?`)) return;
+    await fetch(`http://127.0.0.1:8000/borrar/${t}`, { method: 'DELETE' });
+    if (tickerActivo === t) {
+        tickerActivo = null;
+        document.getElementById('seccion-analisis').style.display = 'none';
+        if (lwChart) { lwChart.remove(); lwChart = null; }
+        document.getElementById('contenedor-grafico').innerHTML = '';
+    }
+    cargarDatos();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EXPORTAR
+// ═══════════════════════════════════════════════════════════════════════════
+function exportarExcel() {
+    const ws = XLSX.utils.json_to_sheet(datosActuales);
+    const wb = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(wb, ws, "Cartera");
+    XLSX.writeFile(wb, "Cartera.xlsx");
+}
+
+function exportarPDF() {
+    const { jsPDF } = window.jspdf;
+    const doc = new jsPDF();
+    doc.setFontSize(16); doc.text("Portfolio Financiero", 14, 15);
+    doc.setFontSize(10); doc.text(`Generado: ${new Date().toLocaleDateString('es-AR')}`, 14, 22);
+    doc.autoTable({
+        head: [['Ticker','Cantidad','Precio Act.','P&L Latente','P&L Realizado']],
+        body: datosActuales.map(i => [
+            i.ticker, i.cantidad, `$${i.precio_actual.toFixed(2)}`,
+            `$${i.ganancia.toFixed(2)}`, `$${(i.pnl_realizado || 0).toFixed(2)}`
+        ]),
+        startY: 27,
+    });
+    doc.save("Reporte.pdf");
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ARRANQUE
+// ═══════════════════════════════════════════════════════════════════════════
+// Pre-carga logos de todos los activos en cartera al arrancar
+async function precargarLogos() {
+    if (datosActuales.length === 0) return;
+    const promises = datosActuales.map(item =>
+        fetch(`http://127.0.0.1:8000/indicadores/${item.ticker}`)
+            .then(r => r.json())
+            .then(d => { if (d.logo_url && !logoCache[item.ticker]) logoCache[item.ticker] = d.logo_url; })
+            .catch(() => {})
+    );
+    await Promise.all(promises);
+    renderTabla();
+}
+
+async function arrancar() {
+    await cargarDatos();
+    precargarLogos();
+    cargarCalendario();
+}
+
+arrancar();
+setInterval(() => { cargarDatos().then(() => precargarLogos()); }, 60000);
+</script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     FOOTER — DERECHOS RESERVADOS
+════════════════════════════════════════════════════════════════════════════ -->
+<footer class="mt-12 border-t border-gray-800 py-6 text-center">
+    <p class="text-gray-500 text-xs tracking-wide">
+        &copy; 2025 <span class="text-gray-400 font-semibold">Luciano D. Pared</span>
+        &mdash; Todos los derechos reservados.
+    </p>
+    <p class="text-gray-600 text-[10px] mt-1 max-w-xl mx-auto leading-relaxed">
+        Este software es de uso personal y privado. Queda prohibida su reproducción, distribución o
+        modificación total o parcial sin autorización expresa del autor.
+        Las marcas, logos y datos de terceros son propiedad de sus respectivos dueños.
+    </p>
+</footer>
+
+</body>
+</html>

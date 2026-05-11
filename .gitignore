@@ -1,0 +1,18 @@
+# Base de datos personal
+cartera_inversion.db
+
+# Python
+__pycache__/
+*.pyc
+*.pyo
+
+# Backups
+BACKUP1/
+
+# Entornos virtuales
+venv/
+.env/
+env/
+
+# Variables de entorno
+.env
