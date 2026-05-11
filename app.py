@@ -268,10 +268,20 @@ def borrar_activo(ticker: str):
 @app.get("/ia/{ticker}")
 def analisis_ia(ticker: str):
     try:
-        tk   = yf.Ticker(ticker)
-        info = tk.info or {}
+        tk = yf.Ticker(ticker)
+        try:
+            info = tk.info or {}
+        except Exception:
+            info = {}
 
+        # Precio actual con fallback a fast_info
         precio_actual = float(info.get('currentPrice') or info.get('regularMarketPrice') or 0)
+        if precio_actual == 0:
+            try:
+                precio_actual = float(tk.fast_info.last_price or 0)
+            except Exception:
+                pass
+
         target_mean   = float(info.get('targetMeanPrice') or 0)
         target_high   = float(info.get('targetHighPrice') or 0)
         target_low    = float(info.get('targetLowPrice') or 0)
@@ -316,7 +326,14 @@ def analisis_ia(ticker: str):
         try:
             recs = tk.recommendations
             if recs is not None and not recs.empty:
-                latest = recs.iloc[-1]
+                # En yfinance nuevo el DataFrame tiene columna 'period'
+                # '0m' = mes actual (más reciente), '-1m' = mes anterior
+                if 'period' in recs.columns:
+                    cur = recs[recs['period'] == '0m']
+                    latest = cur.iloc[0] if not cur.empty else recs.iloc[0]
+                else:
+                    # Formato viejo: índice datetime, primer registro es el más reciente
+                    latest = recs.iloc[0]
                 for k in breakdown:
                     breakdown[k] = int(latest.get(k, 0) or 0)
         except Exception:
@@ -502,8 +519,11 @@ def earnings_report(ticker: str):
 @app.get("/indicadores/{ticker}")
 def indicadores_financieros(ticker: str):
     try:
-        tk   = yf.Ticker(ticker)
-        info = tk.info or {}
+        tk = yf.Ticker(ticker)
+        try:
+            info = tk.info or {}
+        except Exception:
+            info = {}
 
         def safe(v, decimals=4):
             try: return round(float(v), decimals) if v is not None and v == v else None
@@ -599,8 +619,11 @@ def indicadores_financieros(ticker: str):
 @app.get("/orderbook/{ticker}")
 def order_book(ticker: str):
     try:
-        tk   = yf.Ticker(ticker)
-        info = tk.info or {}
+        tk = yf.Ticker(ticker)
+        try:
+            info = tk.info or {}
+        except Exception:
+            info = {}
 
         bid      = float(info.get('bid', 0) or 0)
         ask      = float(info.get('ask', 0) or 0)
@@ -609,6 +632,12 @@ def order_book(ticker: str):
 
         precio = float(info.get('currentPrice') or info.get('regularMarketPrice') or
                        info.get('previousClose') or 0)
+        # Fallback a fast_info para el precio (más rápido y confiable)
+        if precio == 0:
+            try:
+                precio = float(tk.fast_info.last_price or 0)
+            except Exception:
+                pass
         if bid == 0: bid = round(precio * 0.9995, 2)
         if ask == 0: ask = round(precio * 1.0005, 2)
         if bid_size == 0: bid_size = 100

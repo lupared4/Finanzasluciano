@@ -864,7 +864,10 @@ function fmtNum(v, prefix='', suffix='', decimals=2) {
 }
 
 function renderIndicadores(d) {
-    if (!d || d.error) return;
+    if (!d || d.error) {
+        document.getElementById('ki-logo-box').innerHTML = '<span class="text-gray-500 text-[10px]">N/D</span>';
+        return;
+    }
 
     // Logo en el panel
     const logoBox = document.getElementById('ki-logo-box');
@@ -932,7 +935,11 @@ function renderIndicadores(d) {
 // ORDER BOOK + VOLUME PROFILE
 // ═══════════════════════════════════════════════════════════════════════════
 function renderOrderBook(d) {
-    if (!d || d.error) return;
+    if (!d || d.error) {
+        document.getElementById('ob-asks').innerHTML = '<p class="text-gray-500 text-xs text-center py-4">Sin datos disponibles</p>';
+        document.getElementById('ob-bids').innerHTML = '';
+        return;
+    }
 
     document.getElementById('ob-spread').innerText  = d.spread > 0 ? `$${d.spread.toFixed(4)}` : '—';
     document.getElementById('ob-precio').innerText  = `$${d.precio_actual.toFixed(2)}`;
