@@ -8,6 +8,7 @@ import numpy as np
 import pandas as pd
 from pydantic import BaseModel
 import time
+import requests
 
 app = FastAPI()
 
@@ -19,6 +20,22 @@ app.add_middleware(
 )
 
 Session = sessionmaker(bind=engine)
+
+# ─── Sesión HTTP con User-Agent para evitar rate-limit de Yahoo Finance ───────
+_yf_session = requests.Session()
+_yf_session.headers.update({
+    'User-Agent': (
+        'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
+        'AppleWebKit/537.36 (KHTML, like Gecko) '
+        'Chrome/124.0.0.0 Safari/537.36'
+    ),
+    'Accept-Language': 'en-US,en;q=0.9',
+    'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+})
+
+def yft(ticker: str) -> yf.Ticker:
+    """Devuelve un Ticker con sesión personalizada para evitar rate-limit."""
+    return yf.Ticker(ticker, session=_yf_session)
 
 class TransaccionSchema(BaseModel):
     ticker: str
@@ -38,7 +55,7 @@ def get_precio_actual(ticker: str) -> float:
             return precio
 
     precio = 0.0
-    tk = yf.Ticker(ticker)
+    tk = yft(ticker)
 
     # Fallback 1: fast_info (más ligero, menos rate-limit)
     try:
@@ -118,7 +135,7 @@ def obtener_resumen():
 @app.get("/velas/{ticker}")
 def obtener_velas(ticker: str, period: str = Query("1mo")):
     try:
-        tk   = yf.Ticker(ticker)
+        tk   = yft(ticker)
         data = tk.history(period=period)
         if data.empty:
             return []
@@ -142,7 +159,7 @@ def obtener_velas(ticker: str, period: str = Query("1mo")):
 @app.get("/analisis/{ticker}")
 def obtener_analisis(ticker: str):
     try:
-        tk   = yf.Ticker(ticker)
+        tk   = yft(ticker)
         data = tk.history(period="1y")
         if data.empty or len(data) < 50:
             return {"error": "Datos insuficientes"}
@@ -167,7 +184,7 @@ def obtener_analisis(ticker: str):
         # Beta vs SPY
         beta = 1.0
         try:
-            spy     = yf.Ticker("SPY").history(period="1y")
+            spy     = yft("SPY").history(period="1y")
             spy_ret = spy['Close'].pct_change().dropna()
             common  = retornos.index.intersection(spy_ret.index)
             if len(common) > 20:
@@ -204,7 +221,7 @@ def obtener_analisis(ticker: str):
 @app.get("/montecarlo/{ticker}")
 def obtener_montecarlo(ticker: str, dias: int = Query(30)):
     try:
-        tk   = yf.Ticker(ticker)
+        tk   = yft(ticker)
         data = tk.history(period="1y")
         if data.empty or len(data) < 30:
             return {"error": "Datos insuficientes"}
@@ -240,7 +257,7 @@ def obtener_montecarlo(ticker: str, dias: int = Query(30)):
 @app.get("/noticias/{ticker}")
 def obtener_noticias(ticker: str):
     try:
-        tk       = yf.Ticker(ticker)
+        tk       = yft(ticker)
         raw_news = tk.news
         noticias_limpias = []
         for n in raw_news[:5]:
@@ -312,7 +329,7 @@ def borrar_activo(ticker: str):
 @app.get("/ia/{ticker}")
 def analisis_ia(ticker: str):
     try:
-        tk = yf.Ticker(ticker)
+        tk = yft(ticker)
         try:
             info = tk.info or {}
         except Exception:
@@ -423,7 +440,7 @@ def calendario_earnings():
 
         for ticker in tickers:
             try:
-                tk        = yf.Ticker(ticker)
+                tk        = yft(ticker)
                 cal       = tk.calendar
                 fecha_str = None
                 eps_est   = None
@@ -486,7 +503,7 @@ def calendario_earnings():
 @app.get("/earnings/{ticker}")
 def earnings_report(ticker: str):
     try:
-        tk   = yf.Ticker(ticker)
+        tk   = yft(ticker)
         info = tk.info or {}
 
         def safe(v, decimals=2):
@@ -563,7 +580,7 @@ def earnings_report(ticker: str):
 @app.get("/indicadores/{ticker}")
 def indicadores_financieros(ticker: str):
     try:
-        tk = yf.Ticker(ticker)
+        tk = yft(ticker)
         try:
             info = tk.info or {}
         except Exception:
@@ -663,7 +680,7 @@ def indicadores_financieros(ticker: str):
 @app.get("/orderbook/{ticker}")
 def order_book(ticker: str):
     try:
-        tk = yf.Ticker(ticker)
+        tk = yft(ticker)
         try:
             info = tk.info or {}
         except Exception:
