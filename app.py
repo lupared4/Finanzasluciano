@@ -617,13 +617,40 @@ def analisis_ia(ticker: str):
 
 
 # ── Calendario de Earnings ────────────────────────────────────────────────────
+def fetch_calendar_cffi(ticker: str) -> dict:
+    """Usa curl_cffi para impersonar Chrome y obtener calendarEvents con crumb."""
+    try:
+        from curl_cffi import requests as cffi_requests
+        session = cffi_requests.Session(impersonate="chrome110")
+        # Establecer cookies
+        session.get("https://fc.yahoo.com", timeout=8)
+        # Obtener crumb
+        r_crumb = session.get(
+            "https://query2.finance.yahoo.com/v1/test/getcrumb",
+            timeout=8
+        )
+        crumb = r_crumb.text.strip()
+        # Consultar calendarEvents
+        url = (
+            f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
+            f"?modules=calendarEvents&crumb={crumb}"
+        )
+        r = session.get(url, timeout=10)
+        data = r.json()
+        result = data.get("quoteSummary", {}).get("result", [])
+        if result:
+            return result[0].get("calendarEvents", {})
+    except Exception as e:
+        print(f"fetch_calendar_cffi {ticker}: {e}")
+    return {}
+
+
 @app.get("/calendario")
 def calendario_earnings(tickers: str = Query(default="")):
     """Recibe tickers como query param: /calendario?tickers=AAPL,KEEL,MSFT"""
     if tickers:
         ticker_list = [t.strip().upper() for t in tickers.split(',') if t.strip()]
     else:
-        # Fallback: leer de la base de datos (compatibilidad)
         session = Session()
         try:
             ticker_list = [t for (t,) in session.query(Transaccion.ticker).distinct().all()]
@@ -633,61 +660,100 @@ def calendario_earnings(tickers: str = Query(default="")):
     eventos = []
     now     = pd.Timestamp.now(tz='UTC')
 
+    def safe_f(v):
+        try: return round(float(v), 4) if v is not None and v == v else None
+        except: return None
+
+    def get_raw(obj, key):
+        v = obj.get(key, {})
+        if isinstance(v, dict): return v.get("raw")
+        return v
+
     for ticker in ticker_list:
-            try:
-                tk        = yft(ticker)
-                cal       = tk.calendar
-                fecha_str = None
-                eps_est   = None
-                eps_alto  = None
-                eps_bajo  = None
-                rev_est   = None
+        try:
+            fecha_str = None
+            eps_est   = None
+            eps_alto  = None
+            eps_bajo  = None
+            rev_est   = None
 
-                if cal is not None and isinstance(cal, dict):
-                    fechas = cal.get('Earnings Date', [])
-                    if not isinstance(fechas, list):
-                        fechas = [fechas]
-                    for f in fechas:
-                        if hasattr(f, 'strftime'):
-                            ts = pd.Timestamp(f)
-                            if ts.tzinfo is None:
-                                ts = ts.tz_localize('UTC')
-                            if ts >= now:
-                                fecha_str = f.strftime('%Y-%m-%d')
-                                break
-                    eps_est  = cal.get('Earnings Average')
-                    eps_alto = cal.get('Earnings High')
-                    eps_bajo = cal.get('Earnings Low')
-                    rev_est  = cal.get('Revenue Average')
+            # ── Método 1: curl_cffi con crumb (principal) ─────────────────────
+            cal_data = fetch_calendar_cffi(ticker)
+            eb = cal_data.get("earnings", {})
+            if eb:
+                fechas_raw = eb.get("earningsDate", [])
+                for f_obj in fechas_raw:
+                    raw_ts = f_obj.get("raw") if isinstance(f_obj, dict) else None
+                    if raw_ts:
+                        ts = pd.Timestamp(raw_ts, unit='s', tz='UTC')
+                        if ts >= now:
+                            fecha_str = ts.strftime('%Y-%m-%d')
+                            break
+                # Si no hay fecha futura, tomar la más reciente de todas
+                if not fecha_str and fechas_raw:
+                    last = fechas_raw[-1]
+                    raw_ts = last.get("raw") if isinstance(last, dict) else None
+                    if raw_ts:
+                        fecha_str = pd.Timestamp(raw_ts, unit='s', tz='UTC').strftime('%Y-%m-%d')
+                eps_est  = get_raw(eb, "earningsAverage")
+                eps_alto = get_raw(eb, "earningsHigh")
+                eps_bajo = get_raw(eb, "earningsLow")
+                rev_est  = get_raw(eb, "revenueAverage")
 
-                if not fecha_str:
-                    try:
-                        ed = tk.earnings_dates
-                        if ed is not None and not ed.empty:
-                            future = ed[ed.index >= now]
-                            if not future.empty:
-                                fecha_str = future.index[0].strftime('%Y-%m-%d')
-                                col_eps = [c for c in future.columns if 'EPS' in str(c) and 'Estimate' in str(c)]
-                                if col_eps:
-                                    eps_est = future[col_eps[0]].iloc[0]
-                    except Exception:
-                        pass
+            # ── Método 2: yfinance tk.calendar como fallback ──────────────────
+            if not fecha_str:
+                try:
+                    tk  = yft(ticker)
+                    cal = tk.calendar
+                    if cal is not None and isinstance(cal, dict):
+                        fechas = cal.get('Earnings Date', [])
+                        if not isinstance(fechas, list):
+                            fechas = [fechas]
+                        for f in fechas:
+                            if hasattr(f, 'strftime'):
+                                ts = pd.Timestamp(f)
+                                if ts.tzinfo is None:
+                                    ts = ts.tz_localize('UTC')
+                                if ts >= now:
+                                    fecha_str = f.strftime('%Y-%m-%d')
+                                    break
+                        if not eps_est:
+                            eps_est  = cal.get('Earnings Average')
+                            eps_alto = cal.get('Earnings High')
+                            eps_bajo = cal.get('Earnings Low')
+                            rev_est  = cal.get('Revenue Average')
+                except Exception:
+                    pass
 
-                def safe_f(v):
-                    try: return round(float(v), 4) if v is not None and v == v else None
-                    except: return None
+            # ── Método 3: earnings_dates ──────────────────────────────────────
+            if not fecha_str:
+                try:
+                    tk = yft(ticker)
+                    ed = tk.earnings_dates
+                    if ed is not None and not ed.empty:
+                        future = ed[ed.index >= now]
+                        if not future.empty:
+                            fecha_str = future.index[0].strftime('%Y-%m-%d')
+                            col_eps = [c for c in future.columns if 'EPS' in str(c) and 'Estimate' in str(c)]
+                            if col_eps and not eps_est:
+                                eps_est = future[col_eps[0]].iloc[0]
+                except Exception:
+                    pass
 
-                if fecha_str:
-                    eventos.append({
-                        "ticker":           ticker,
-                        "fecha":            fecha_str,
-                        "eps_estimado":     safe_f(eps_est),
-                        "eps_alto":         safe_f(eps_alto),
-                        "eps_bajo":         safe_f(eps_bajo),
-                        "revenue_estimado": int(rev_est) if rev_est is not None and rev_est == rev_est else None,
-                    })
-            except Exception as ex:
-                print(f"Error calendario {ticker}: {ex}")
+            if fecha_str:
+                eventos.append({
+                    "ticker":           ticker,
+                    "fecha":            fecha_str,
+                    "eps_estimado":     safe_f(eps_est),
+                    "eps_alto":         safe_f(eps_alto),
+                    "eps_bajo":         safe_f(eps_bajo),
+                    "revenue_estimado": int(rev_est) if rev_est is not None and rev_est == rev_est else None,
+                })
+            else:
+                print(f"Calendario {ticker}: sin fecha de earnings disponible")
+
+        except Exception as ex:
+            print(f"Error calendario {ticker}: {ex}")
 
     return sorted(eventos, key=lambda x: x['fecha'])
 
