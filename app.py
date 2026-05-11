@@ -110,6 +110,13 @@ def get_precio_actual(ticker: str) -> float:
     return 0.0
 
 
+# ─── Precio individual ───────────────────────────────────────────────────────
+@app.get("/precio/{ticker}")
+def obtener_precio(ticker: str):
+    """Retorna el precio actual de un ticker (con caché de 60s)."""
+    return {"ticker": ticker.upper(), "precio": get_precio_actual(ticker)}
+
+
 # ─── Resumen de cartera ───────────────────────────────────────────────────────
 @app.get("/resumen")
 def obtener_resumen():

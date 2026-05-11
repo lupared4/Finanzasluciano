@@ -724,10 +724,75 @@ function fmtCap(v) {
 // ═══════════════════════════════════════════════════════════════════════════
 // CARGA DE DATOS
 // ═══════════════════════════════════════════════════════════════════════════
+// ─── localStorage helpers ───────────────────────────────────────────────────
+function getOperaciones() {
+    try { return JSON.parse(localStorage.getItem('operaciones') || '[]'); }
+    catch { return []; }
+}
+function saveOperaciones(ops) {
+    localStorage.setItem('operaciones', JSON.stringify(ops));
+}
+
 async function cargarDatos() {
     try {
-        const res = await fetch('https://finanzasluciano.onrender.com/resumen');
-        datosActuales = await res.json();
+        const ops = getOperaciones();
+
+        // Agrupar por ticker
+        const porTicker = {};
+        for (const op of ops) {
+            if (!porTicker[op.ticker]) porTicker[op.ticker] = { compras: [], ventas: [] };
+            if (op.tipo === 'Compra') porTicker[op.ticker].compras.push(op);
+            else porTicker[op.ticker].ventas.push(op);
+        }
+
+        // Solo tickers con posición positiva
+        const tickers = Object.keys(porTicker).filter(t => {
+            const cc = porTicker[t].compras.reduce((s, o) => s + o.cantidad, 0);
+            const cv = porTicker[t].ventas.reduce((s,  o) => s + o.cantidad, 0);
+            return cc - cv > 0;
+        });
+
+        if (tickers.length === 0) {
+            datosActuales = [];
+            renderTabla();
+            renderTorta();
+            setStatus(true);
+            return;
+        }
+
+        // Traer precios del backend en paralelo
+        const priceResults = await Promise.allSettled(
+            tickers.map(t =>
+                fetch(`https://finanzasluciano.onrender.com/precio/${t}`)
+                    .then(r => r.json())
+                    .catch(() => ({ precio: 0 }))
+            )
+        );
+
+        datosActuales = tickers.map((t, i) => {
+            const compras       = porTicker[t].compras;
+            const ventas        = porTicker[t].ventas;
+            const cantComprada  = compras.reduce((s, o) => s + o.cantidad, 0);
+            const cantVendida   = ventas.reduce((s,  o) => s + o.cantidad, 0);
+            const cantActual    = cantComprada - cantVendida;
+            const costoTotal    = compras.reduce((s, o) => s + o.cantidad * o.precio, 0);
+            const precioPromedio = costoTotal / cantComprada;
+            const ingresoVentas = ventas.reduce((s, o) => s + o.cantidad * o.precio, 0);
+            const costoVendido  = ventas.reduce((s, o) => s + o.cantidad * precioPromedio, 0);
+            const pnlRealizado  = ingresoVentas - costoVendido;
+            const prRes = priceResults[i];
+            const precioActual  = (prRes.status === 'fulfilled' ? (prRes.value?.precio || 0) : 0);
+            const ganancia      = (precioActual - precioPromedio) * cantActual;
+            return {
+                ticker:        t,
+                cantidad:      cantActual,
+                precio_compra: Math.round(precioPromedio * 100) / 100,
+                precio_actual: Math.round(precioActual  * 100) / 100,
+                ganancia:      Math.round(ganancia      * 100) / 100,
+                pnl_realizado: Math.round(pnlRealizado  * 100) / 100,
+            };
+        });
+
         renderTabla();
         renderTorta();
         if (datosActuales.length > 0 && !tickerActivo) {
@@ -735,6 +800,7 @@ async function cargarDatos() {
         }
         setStatus(true);
     } catch (e) {
+        console.error('cargarDatos error:', e);
         setStatus(false);
     }
 }
@@ -1429,7 +1495,7 @@ function abrirModalVenta(ticker) {
     document.getElementById('modal-venta').classList.remove('hidden');
 }
 
-async function confirmarVenta() {
+function confirmarVenta() {
     const ticker   = document.getElementById('venta-ticker').value;
     const cantidad = parseFloat(document.getElementById('venta-cantidad').value);
     const precio   = parseFloat(document.getElementById('venta-precio').value);
@@ -1437,14 +1503,18 @@ async function confirmarVenta() {
         alert('Completá todos los campos con valores válidos.');
         return;
     }
-    const res  = await fetch('https://finanzasluciano.onrender.com/vender', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ ticker, cantidad, precio_unitario: precio }),
-    });
-    const data = await res.json();
-    if (data.status === 'success') { cerrarModal('modal-venta'); cargarDatos(); }
-    else alert('Error al registrar la venta: ' + (data.message || ''));
+    // Verificar cantidad disponible
+    const ops        = getOperaciones();
+    const cantCompra = ops.filter(o => o.ticker === ticker && o.tipo === 'Compra').reduce((s, o) => s + o.cantidad, 0);
+    const cantVenta  = ops.filter(o => o.ticker === ticker && o.tipo === 'Venta' ).reduce((s, o) => s + o.cantidad, 0);
+    if (cantidad > cantCompra - cantVenta) {
+        alert(`Solo tenés ${cantCompra - cantVenta} unidades disponibles de ${ticker}`);
+        return;
+    }
+    ops.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2), ticker, tipo: 'Venta', cantidad, precio, fecha: new Date().toISOString() });
+    saveOperaciones(ops);
+    cerrarModal('modal-venta');
+    cargarDatos();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1452,12 +1522,11 @@ async function confirmarVenta() {
 // ═══════════════════════════════════════════════════════════════════════════
 const historialSesion = [];
 
-async function enviarCompra() {
+function enviarCompra() {
     const t = document.getElementById('input-ticker').value.trim().toUpperCase();
     const c = document.getElementById('input-cantidad').value;
     const p = document.getElementById('input-precio').value;
     if (!t || !c || !p) {
-        // Resaltar campos vacíos
         ['input-ticker','input-cantidad','input-precio'].forEach(id => {
             const el = document.getElementById(id);
             if (!el.value.trim()) { el.classList.add('ring-2','ring-red-500'); setTimeout(() => el.classList.remove('ring-2','ring-red-500'), 1500); }
@@ -1465,61 +1534,44 @@ async function enviarCompra() {
         return;
     }
 
+    // Guardar en localStorage — instantáneo, sin servidor
+    const ops = getOperaciones();
+    ops.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2), ticker: t, tipo: 'Compra', cantidad: parseFloat(c), precio: parseFloat(p), fecha: new Date().toISOString() });
+    saveOperaciones(ops);
+
+    // Historial rápido
+    historialSesion.unshift({ ticker: t, cantidad: c, precio: p });
+    if (historialSesion.length > 5) historialSesion.pop();
+    document.getElementById('historial-rapido').classList.remove('hidden');
+    document.getElementById('historial-lista').innerHTML = historialSesion.map(h =>
+        `<div class="flex justify-between text-[10px] text-gray-400 bg-gray-700/50 px-2 py-1 rounded">
+            <span class="font-bold text-blue-400">${h.ticker}</span>
+            <span>${h.cantidad} u. @ $${parseFloat(h.precio).toFixed(2)}</span>
+        </div>`
+    ).join('');
+
+    document.getElementById('input-ticker').value   = '';
+    document.getElementById('input-cantidad').value = '';
+    document.getElementById('input-ticker').focus();
+
     const btn = document.getElementById('btn-registrar');
-    btn.disabled = true;
-    btn.innerText = 'Guardando...';
-    btn.classList.add('opacity-60');
+    btn.innerText = '✓ Registrado!';
+    btn.classList.replace('bg-blue-600', 'bg-green-600');
+    setTimeout(() => {
+        btn.innerText = 'Registrar Compra';
+        btn.classList.replace('bg-green-600', 'bg-blue-600');
+    }, 1200);
 
-    try {
-        const res = await fetch('https://finanzasluciano.onrender.com/comprar', {
-            method: 'POST',
-            headers: {'Content-Type': 'application/json'},
-            body: JSON.stringify({ ticker: t, cantidad: parseFloat(c), precio_unitario: parseFloat(p) }),
-        });
-        const data = await res.json();
-        if (data.status === 'success') {
-            // Agregar al historial rápido
-            historialSesion.unshift({ ticker: t, cantidad: c, precio: p });
-            if (historialSesion.length > 5) historialSesion.pop();
-            const lista = document.getElementById('historial-lista');
-            document.getElementById('historial-rapido').classList.remove('hidden');
-            lista.innerHTML = historialSesion.map(h =>
-                `<div class="flex justify-between text-[10px] text-gray-400 bg-gray-700/50 px-2 py-1 rounded">
-                    <span class="font-bold text-blue-400">${h.ticker}</span>
-                    <span>${h.cantidad} u. @ $${parseFloat(h.precio).toFixed(2)}</span>
-                </div>`
-            ).join('');
-
-            // Limpiar sólo ticker y cantidad, mantener precio para siguiente entrada
-            document.getElementById('input-ticker').value   = '';
-            document.getElementById('input-cantidad').value = '';
-            document.getElementById('input-ticker').focus();
-
-            btn.innerText = '✓ Registrado!';
-            btn.classList.remove('opacity-60');
-            btn.classList.replace('bg-blue-600','bg-green-600');
-            setTimeout(() => {
-                btn.innerText = 'Registrar Compra';
-                btn.classList.replace('bg-green-600','bg-blue-600');
-            }, 1500);
-
-            cargarDatos();
-        }
-    } catch(e) {
-        btn.innerText = 'Error — reintentá';
-        btn.classList.remove('opacity-60');
-        setTimeout(() => { btn.innerText = 'Registrar Compra'; }, 2000);
-    } finally {
-        btn.disabled = false;
-    }
+    cargarDatos();
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
 // ELIMINAR
 // ═══════════════════════════════════════════════════════════════════════════
-async function eliminarActivo(t) {
+function eliminarActivo(t) {
     if (!confirm(`¿Eliminar TODAS las operaciones de ${t}?`)) return;
-    await fetch(`https://finanzasluciano.onrender.com/borrar/${t}`, { method: 'DELETE' });
+    const ops = getOperaciones().filter(op => op.ticker !== t);
+    saveOperaciones(ops);
     if (tickerActivo === t) {
         tickerActivo = null;
         document.getElementById('seccion-analisis').style.display = 'none';
