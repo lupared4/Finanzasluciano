@@ -169,8 +169,21 @@
 <div class="container mx-auto px-3 sm:px-4 py-4 sm:py-8">
 
     <!-- Header -->
-    <header class="flex flex-wrap justify-between items-center mb-8 border-b border-gray-800 pb-5 gap-3">
-        <h1 class="text-xl sm:text-3xl font-bold text-blue-400">📊 Terminal de Inversiones</h1>
+    <header class="flex flex-wrap justify-between items-center mb-6 border-b border-gray-800 pb-5 gap-3">
+        <div class="flex items-center gap-3">
+            <!-- Logo SVG finanzas -->
+            <div class="bg-blue-600/20 border border-blue-500/40 rounded-xl p-2 flex items-center justify-center">
+                <svg xmlns="http://www.w3.org/2000/svg" class="w-8 h-8 text-blue-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" stroke-width="1.8">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 17l4-8 4 4 4-7 4 5" />
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M12 2C6.48 2 2 6.48 2 12s4.48 10 10 10 10-4.48 10-10S17.52 2 12 2z" opacity="0.2"/>
+                    <circle cx="19" cy="6" r="2.5" fill="#3b82f6" stroke="none"/>
+                </svg>
+            </div>
+            <div>
+                <h1 class="text-lg sm:text-2xl font-bold text-white leading-tight">Terminal de Inversiones</h1>
+                <p class="text-blue-400 text-[11px] sm:text-xs tracking-widest uppercase font-medium">Tu portafolio. Tu control. Tu futuro.</p>
+            </div>
+        </div>
         <div id="status" class="text-green-400 font-bold px-3 py-1 bg-green-900/30 rounded-full text-sm whitespace-nowrap">
             ● Sistema Online
         </div>
