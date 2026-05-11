@@ -618,14 +618,22 @@ def analisis_ia(ticker: str):
 
 # ── Calendario de Earnings ────────────────────────────────────────────────────
 @app.get("/calendario")
-def calendario_earnings():
-    session = Session()
-    try:
-        tickers = [t for (t,) in session.query(Transaccion.ticker).distinct().all()]
-        eventos = []
-        now     = pd.Timestamp.now(tz='UTC')
+def calendario_earnings(tickers: str = Query(default="")):
+    """Recibe tickers como query param: /calendario?tickers=AAPL,KEEL,MSFT"""
+    if tickers:
+        ticker_list = [t.strip().upper() for t in tickers.split(',') if t.strip()]
+    else:
+        # Fallback: leer de la base de datos (compatibilidad)
+        session = Session()
+        try:
+            ticker_list = [t for (t,) in session.query(Transaccion.ticker).distinct().all()]
+        finally:
+            session.close()
 
-        for ticker in tickers:
+    eventos = []
+    now     = pd.Timestamp.now(tz='UTC')
+
+    for ticker in ticker_list:
             try:
                 tk        = yft(ticker)
                 cal       = tk.calendar
@@ -681,9 +689,7 @@ def calendario_earnings():
             except Exception as ex:
                 print(f"Error calendario {ticker}: {ex}")
 
-        return sorted(eventos, key=lambda x: x['fecha'])
-    finally:
-        session.close()
+    return sorted(eventos, key=lambda x: x['fecha'])
 
 
 # ── Reporte Detallado de Earnings ─────────────────────────────────────────────

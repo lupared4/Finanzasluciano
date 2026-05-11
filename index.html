@@ -1373,7 +1373,23 @@ async function cargarCalendario() {
     const cont = document.getElementById('contenedor-calendario');
     cont.innerHTML = '<p class="text-gray-500 text-center py-6 text-sm animate-pulse">Consultando fechas de earnings...</p>';
     try {
-        const eventos = await fetch('https://finanzasluciano.onrender.com/calendario').then(r => r.json());
+        // Obtener tickers del localStorage
+        const ops = getOperaciones();
+        const porTicker = {};
+        for (const op of ops) {
+            if (!porTicker[op.ticker]) porTicker[op.ticker] = { c: 0, v: 0 };
+            if (op.tipo === 'Compra') porTicker[op.ticker].c += op.cantidad;
+            else porTicker[op.ticker].v += op.cantidad;
+        }
+        const tickers = Object.keys(porTicker).filter(t => porTicker[t].c - porTicker[t].v > 0);
+
+        if (tickers.length === 0) {
+            cont.innerHTML = '<p class="text-gray-500 italic text-center py-6">Agregá activos a tu cartera para ver el calendario.</p>';
+            return;
+        }
+
+        const url = `https://finanzasluciano.onrender.com/calendario?tickers=${tickers.join(',')}`;
+        const eventos = await fetch(url).then(r => r.json());
         if (!eventos || eventos.length === 0) {
             cont.innerHTML = '<p class="text-gray-500 italic text-center py-6">No se encontraron earnings próximos para los activos en cartera.</p>';
             return;
