@@ -140,21 +140,9 @@ def obtener_resumen():
 @app.get("/velas/{ticker}")
 def obtener_velas(ticker: str, period: str = Query("1mo")):
     try:
-        # Usar yf.download() que usa un endpoint diferente y evita rate-limit
-        data = yf.download(
-            ticker, period=period, auto_adjust=True,
-            progress=False, session=_yf_session
-        )
-        if data.empty:
-            # Fallback: tk.history()
-            data = yft(ticker).history(period=period)
+        data = get_history(ticker, period)
         if data.empty:
             return []
-
-        # yf.download puede devolver MultiIndex en columnas si es multi-ticker
-        if isinstance(data.columns, pd.MultiIndex):
-            data.columns = data.columns.get_level_values(0)
-
         result = []
         for idx, row in data.iterrows():
             try:
@@ -174,8 +162,82 @@ def obtener_velas(ticker: str, period: str = Query("1mo")):
         return []
 
 
+# ─── Mapeo de periodos a parámetros Yahoo Finance v8 ─────────────────────────
+_PERIOD_MAP = {
+    "5d":  ("5d",  "1d"),
+    "1mo": ("1mo", "1d"),
+    "3mo": ("3mo", "1d"),
+    "1y":  ("1y",  "1d"),
+    "6mo": ("6mo", "1d"),
+    "2d":  ("5d",  "1d"),
+}
+
+def fetch_yahoo_v8(ticker: str, period: str = "1y") -> pd.DataFrame:
+    """Llama directo al API v8 de Yahoo Finance con headers de navegador."""
+    yf_period, interval = _PERIOD_MAP.get(period, ("1y", "1d"))
+    headers = {
+        "User-Agent": (
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
+            "AppleWebKit/537.36 (KHTML, like Gecko) "
+            "Chrome/124.0.0.0 Safari/537.36"
+        ),
+        "Accept": "*/*",
+        "Accept-Language": "en-US,en;q=0.9",
+        "Origin": "https://finance.yahoo.com",
+        "Referer": f"https://finance.yahoo.com/quote/{ticker}/",
+    }
+    params = {"interval": interval, "range": yf_period, "includePrePost": "false"}
+
+    for base in ["query2", "query1"]:
+        try:
+            url  = f"https://{base}.finance.yahoo.com/v8/finance/chart/{ticker}"
+            resp = requests.get(url, params=params, headers=headers, timeout=15)
+            if resp.status_code != 200:
+                continue
+            data   = resp.json()
+            result = data.get("chart", {}).get("result", [])
+            if not result:
+                continue
+            chart      = result[0]
+            timestamps = chart.get("timestamp", [])
+            ohlcv      = chart.get("indicators", {}).get("quote", [{}])[0]
+            closes  = ohlcv.get("close",  [None] * len(timestamps))
+            opens   = ohlcv.get("open",   [None] * len(timestamps))
+            highs   = ohlcv.get("high",   [None] * len(timestamps))
+            lows    = ohlcv.get("low",    [None] * len(timestamps))
+            volumes = ohlcv.get("volume", [0]    * len(timestamps))
+
+            rows, dates = [], []
+            for i, ts in enumerate(timestamps):
+                try:
+                    c = closes[i]
+                    if c is None:
+                        continue
+                    rows.append({
+                        "Open":   float(opens[i]   or 0),
+                        "High":   float(highs[i]   or 0),
+                        "Low":    float(lows[i]    or 0),
+                        "Close":  float(c),
+                        "Volume": int(volumes[i]   or 0) if i < len(volumes) else 0,
+                    })
+                    dates.append(pd.Timestamp(ts, unit="s", tz="UTC").normalize())
+                except (TypeError, IndexError):
+                    continue
+            if rows:
+                return pd.DataFrame(rows, index=pd.DatetimeIndex(dates))
+        except Exception as e:
+            print(f"fetch_yahoo_v8 {base} {ticker}: {e}")
+            continue
+    return pd.DataFrame()
+
+
 def get_history(ticker: str, period: str = "1y") -> pd.DataFrame:
-    """Intenta yf.download() primero, luego tk.history() como fallback."""
+    """Obtiene histórico: primero API directa v8, luego yf.download, luego tk.history."""
+    # Intento 1: API v8 directa (más confiable desde Render)
+    df = fetch_yahoo_v8(ticker, period)
+    if not df.empty:
+        return df
+    # Intento 2: yf.download
     try:
         data = yf.download(
             ticker, period=period, auto_adjust=True,
@@ -187,6 +249,7 @@ def get_history(ticker: str, period: str = "1y") -> pd.DataFrame:
             return data
     except Exception:
         pass
+    # Intento 3: tk.history
     try:
         return yft(ticker).history(period=period)
     except Exception:
