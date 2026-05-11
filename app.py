@@ -616,33 +616,51 @@ def analisis_ia(ticker: str):
         return {"error": str(e)}
 
 
+# ── Helper: curl_cffi con crumb (compartido por calendario e indicadores) ─────
+_cffi_crumb: dict = {"crumb": None, "ts": 0.0}
+
+def _get_crumb() -> tuple:
+    """Devuelve (cffi_session, crumb). Cachea el crumb 30 min."""
+    from curl_cffi import requests as cffi_requests
+    now = time.time()
+    if _cffi_crumb["crumb"] and now - _cffi_crumb["ts"] < 1800:
+        s = cffi_requests.Session(impersonate="chrome110")
+        return s, _cffi_crumb["crumb"]
+    s = cffi_requests.Session(impersonate="chrome110")
+    s.get("https://fc.yahoo.com", timeout=8)
+    r = s.get("https://query2.finance.yahoo.com/v1/test/getcrumb", timeout=8)
+    crumb = r.text.strip()
+    _cffi_crumb["crumb"] = crumb
+    _cffi_crumb["ts"]    = now
+    return s, crumb
+
+def fetch_quote_summary(ticker: str, modules: list) -> dict:
+    """Llama a quoteSummary de Yahoo Finance via curl_cffi con crumb."""
+    try:
+        s, crumb = _get_crumb()
+        mods = ",".join(modules)
+        url  = (f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
+                f"?modules={mods}&crumb={crumb}")
+        r    = s.get(url, timeout=12)
+        data = r.json()
+        results = data.get("quoteSummary", {}).get("result", [])
+        if results:
+            return results[0]
+    except Exception as e:
+        print(f"fetch_quote_summary {ticker}: {e}")
+    return {}
+
+
 # ── Calendario de Earnings ────────────────────────────────────────────────────
 def fetch_calendar_cffi(ticker: str) -> dict:
     """Usa curl_cffi para impersonar Chrome y obtener calendarEvents con crumb."""
     try:
-        from curl_cffi import requests as cffi_requests
-        session = cffi_requests.Session(impersonate="chrome110")
-        # Establecer cookies
-        session.get("https://fc.yahoo.com", timeout=8)
-        # Obtener crumb
-        r_crumb = session.get(
-            "https://query2.finance.yahoo.com/v1/test/getcrumb",
-            timeout=8
-        )
-        crumb = r_crumb.text.strip()
-        # Consultar calendarEvents
-        url = (
-            f"https://query2.finance.yahoo.com/v10/finance/quoteSummary/{ticker}"
-            f"?modules=calendarEvents&crumb={crumb}"
-        )
-        r = session.get(url, timeout=10)
-        data = r.json()
-        result = data.get("quoteSummary", {}).get("result", [])
-        if result:
-            return result[0].get("calendarEvents", {})
+        data = fetch_quote_summary(ticker, ["calendarEvents"])
+        return data.get("calendarEvents", {})
     except Exception as e:
         print(f"fetch_calendar_cffi {ticker}: {e}")
     return {}
+
 
 
 @app.get("/calendario")
@@ -844,96 +862,119 @@ def indicadores_financieros(ticker: str):
     if cached is not None:
         return cached
     try:
-        tk = yft(ticker)
-        try:
-            info = tk.info or {}
-        except Exception:
-            info = {}
+        # ── Método principal: quoteSummary via curl_cffi (confiable en Render) ──
+        qs = fetch_quote_summary(ticker, [
+            "financialData", "defaultKeyStatistics", "summaryProfile", "price", "summaryDetail"
+        ])
+        fd  = qs.get("financialData", {})        # ROA, ROE, márgenes, crecimiento
+        ks  = qs.get("defaultKeyStatistics", {})  # EPS, PEG, priceToBook, etc.
+        sp  = qs.get("summaryProfile", {})        # sector, industry, website
+        pr  = qs.get("price", {})                 # longName, marketCap
+        sd  = qs.get("summaryDetail", {})         # trailingPE, forwardPE
 
-        def safe(v, decimals=4):
+        def g(d, key, decimals=4):
+            v = d.get(key)
+            if isinstance(v, dict): v = v.get("raw")
             try: return round(float(v), decimals) if v is not None and v == v else None
             except: return None
 
-        roa = safe(info.get('returnOnAssets'))
-        roe = safe(info.get('returnOnEquity'))
-        net_margin = safe(info.get('profitMargins'))
-        current_ratio = safe(info.get('currentRatio'), 2)
-        book_value = safe(info.get('bookValue'), 2)
-        eps_ttm = safe(info.get('trailingEps'), 4)
-        eps_forward = safe(info.get('forwardEps'), 4)
-        pe_trailing = safe(info.get('trailingPE'), 2)
-        pe_forward = safe(info.get('forwardPE'), 2)
-        revenue_growth = safe(info.get('revenueGrowth'))
-        earnings_growth = safe(info.get('earningsGrowth'))
-        gross_margins = safe(info.get('grossMargins'))
-        operating_margins = safe(info.get('operatingMargins'))
-        ebitda_margins = safe(info.get('ebitdaMargins'))
-        debt_to_equity = safe(info.get('debtToEquity'), 2)
-        peg_ratio = safe(info.get('pegRatio'), 2)
-        price_to_book = safe(info.get('priceToBook'), 2)
+        # Fallback: tk.info si quoteSummary devolvió vacío
+        info = {}
+        if not fd and not ks:
+            try:
+                info = yft(ticker).info or {}
+            except Exception:
+                pass
+
+        def gi(key, decimals=4):
+            return safe_num(info.get(key), decimals)
+
+        def safe_num(v, decimals=4):
+            try: return round(float(v), decimals) if v is not None and v == v else None
+            except: return None
+
+        roa             = g(fd, "returnOnAssets")       or gi("returnOnAssets")
+        roe             = g(fd, "returnOnEquity")        or gi("returnOnEquity")
+        net_margin      = g(fd, "profitMargins")         or gi("profitMargins")
+        gross_margins   = g(fd, "grossMargins")          or gi("grossMargins")
+        op_margins      = g(fd, "operatingMargins")      or gi("operatingMargins")
+        ebitda_margins  = g(fd, "ebitdaMargins")         or gi("ebitdaMargins")
+        current_ratio   = g(fd, "currentRatio", 2)       or gi("currentRatio", 2)
+        debt_to_equity  = g(fd, "debtToEquity", 2)       or gi("debtToEquity", 2)
+        revenue_growth  = g(fd, "revenueGrowth")         or gi("revenueGrowth")
+        earnings_growth = g(fd, "earningsGrowth")        or gi("earningsGrowth")
+
+        eps_ttm     = g(ks, "trailingEps", 4)    or gi("trailingEps", 4)
+        eps_forward = g(ks, "forwardEps", 4)     or gi("forwardEps", 4)
+        pe_trailing = g(sd, "trailingPE", 2) or g(ks, "trailingPE", 2) or g(fd, "trailingPE", 2) or gi("trailingPE", 2)
+        pe_forward  = g(sd, "forwardPE", 2)  or g(ks, "forwardPE", 2)  or g(fd, "forwardPE", 2)  or gi("forwardPE", 2)
+        peg_ratio   = g(ks, "pegRatio", 2)       or gi("pegRatio", 2)
+        pb          = g(ks, "priceToBook", 2)    or gi("priceToBook", 2)
+        book_value  = g(ks, "bookValue", 2)      or gi("bookValue", 2)
 
         # CFPS = operatingCashflow / sharesOutstanding
         cfps = None
         try:
-            ocf    = info.get('operatingCashflow')
-            shares = info.get('sharesOutstanding')
-            if ocf and shares and shares > 0:
+            ocf    = g(fd, "operatingCashflow") or info.get("operatingCashflow")
+            shares = g(ks, "sharesOutstanding") or info.get("sharesOutstanding")
+            if ocf and shares and float(shares) > 0:
                 cfps = round(float(ocf) / float(shares), 4)
         except Exception:
             pass
 
-        # Debt to Asset = totalDebt / totalAssets
+        # Debt to Asset desde balance_sheet (yfinance)
         debt_to_asset = None
         try:
+            tk = yft(ticker)
             bs = tk.balance_sheet
             if bs is not None and not bs.empty:
-                total_debt = None
-                total_assets = None
+                td, ta = None, None
                 for label in bs.index:
                     ls = str(label).lower()
                     if 'total debt' in ls or 'totaldebt' in ls:
-                        total_debt = float(bs.loc[label].iloc[0])
+                        td = float(bs.loc[label].iloc[0])
                     if 'total assets' in ls or 'totalassets' in ls:
-                        total_assets = float(bs.loc[label].iloc[0])
-                if total_debt is not None and total_assets and total_assets > 0:
-                    debt_to_asset = round(total_debt / total_assets, 4)
+                        ta = float(bs.loc[label].iloc[0])
+                if td is not None and ta and ta > 0:
+                    debt_to_asset = round(td / ta, 4)
         except Exception:
             pass
 
-        # BVPS directo de info o book_value ya cargado
-        bvps = book_value
+        # Nombre, sector, logo
+        nombre  = pr.get("longName", {})
+        if isinstance(nombre, dict): nombre = nombre.get("raw", ticker)
+        nombre  = nombre or sp.get("longName") or info.get("longName", ticker)
 
-        # Logo: clearbit fallback a yahoo
-        website = info.get('website', '') or ''
-        domain  = website.replace('https://','').replace('http://','').split('/')[0]
+        sector  = sp.get("sector") or info.get("sector", "—")
+
+        website = sp.get("website") or info.get("website", "")
+        domain  = (website or "").replace("https://","").replace("http://","").split("/")[0]
         logo_url = f"https://logo.clearbit.com/{domain}" if domain else None
-        if not logo_url:
-            logo_url = info.get('logo_url') or None
 
         result = {
-            "ticker":            ticker.upper(),
-            "nombre":            info.get('longName', ticker),
-            "sector":            info.get('sector', '—'),
-            "logo_url":          logo_url,
-            "roa":               roa,
-            "roe":               roe,
-            "eps_ttm":           eps_ttm,
-            "eps_forward":       eps_forward,
-            "net_margin":        net_margin,
-            "gross_margin":      gross_margins,
-            "operating_margin":  operating_margins,
-            "ebitda_margin":     ebitda_margins,
-            "debt_to_asset":     debt_to_asset,
-            "debt_to_equity":    debt_to_equity,
-            "current_ratio":     current_ratio,
-            "bvps":              bvps,
-            "cfps":              cfps,
-            "pe_trailing":       pe_trailing,
-            "pe_forward":        pe_forward,
-            "peg_ratio":         peg_ratio,
-            "price_to_book":     price_to_book,
-            "revenue_growth":    revenue_growth,
-            "earnings_growth":   earnings_growth,
+            "ticker":           ticker.upper(),
+            "nombre":           nombre,
+            "sector":           sector,
+            "logo_url":         logo_url,
+            "roa":              roa,
+            "roe":              roe,
+            "eps_ttm":          eps_ttm,
+            "eps_forward":      eps_forward,
+            "net_margin":       net_margin,
+            "gross_margin":     gross_margins,
+            "operating_margin": op_margins,
+            "ebitda_margin":    ebitda_margins,
+            "debt_to_asset":    debt_to_asset,
+            "debt_to_equity":   debt_to_equity,
+            "current_ratio":    current_ratio,
+            "bvps":             book_value,
+            "cfps":             cfps,
+            "pe_trailing":      pe_trailing,
+            "pe_forward":       pe_forward,
+            "peg_ratio":        peg_ratio,
+            "price_to_book":    pb,
+            "revenue_growth":   revenue_growth,
+            "earnings_growth":  earnings_growth,
         }
         _cache_set(_endpoint_cache, f"indicadores_{ticker}", result)
         return result
