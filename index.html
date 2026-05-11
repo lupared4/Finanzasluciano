@@ -196,17 +196,25 @@
         <div class="lg:col-span-1 space-y-6">
 
             <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
-                <h3 class="text-blue-300 font-bold mb-4 text-sm uppercase">Nueva Operación</h3>
+                <h3 class="text-blue-300 font-bold mb-4 text-sm uppercase">Nueva Operaci&#xF3;n</h3>
                 <input type="text" id="input-ticker" placeholder="Ticker (ej: AAPL)"
-                       class="w-full bg-gray-700 rounded-lg p-2 mb-3 uppercase text-white focus:ring-2 focus:ring-blue-500 outline-none">
+                       class="w-full bg-gray-700 rounded-lg p-2 mb-3 uppercase text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                       onkeydown="if(event.key==='Enter') document.getElementById('input-cantidad').focus()">
                 <input type="number" id="input-cantidad" placeholder="Cantidad"
-                       class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white outline-none">
+                       class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white outline-none"
+                       onkeydown="if(event.key==='Enter') document.getElementById('input-precio').focus()">
                 <input type="number" id="input-precio" placeholder="Precio Compra"
-                       class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white outline-none">
-                <button onclick="enviarCompra()"
+                       class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white outline-none"
+                       onkeydown="if(event.key==='Enter') enviarCompra()">
+                <button id="btn-registrar" onclick="enviarCompra()"
                         class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded-lg font-bold transition-all">
                     Registrar Compra
                 </button>
+                <!-- Historial r&#xE1;pido de &#xFA;ltimas operaciones cargadas -->
+                <div id="historial-rapido" class="mt-3 space-y-1 hidden">
+                    <p class="text-gray-500 text-[10px] uppercase tracking-widest mb-1">&#xDA;ltimas cargadas</p>
+                    <div id="historial-lista" class="space-y-1"></div>
+                </div>
             </div>
 
             <!-- Resumen financiero -->
@@ -1442,20 +1450,68 @@ async function confirmarVenta() {
 // ═══════════════════════════════════════════════════════════════════════════
 // COMPRA
 // ═══════════════════════════════════════════════════════════════════════════
+const historialSesion = [];
+
 async function enviarCompra() {
-    const t = document.getElementById('input-ticker').value.trim();
+    const t = document.getElementById('input-ticker').value.trim().toUpperCase();
     const c = document.getElementById('input-cantidad').value;
     const p = document.getElementById('input-precio').value;
-    if (!t || !c || !p) return;
-    await fetch('https://finanzasluciano.onrender.com/comprar', {
-        method: 'POST',
-        headers: {'Content-Type': 'application/json'},
-        body: JSON.stringify({ ticker: t.toUpperCase(), cantidad: parseFloat(c), precio_unitario: parseFloat(p) }),
-    });
-    document.getElementById('input-ticker').value   = '';
-    document.getElementById('input-cantidad').value = '';
-    document.getElementById('input-precio').value   = '';
-    cargarDatos();
+    if (!t || !c || !p) {
+        // Resaltar campos vacíos
+        ['input-ticker','input-cantidad','input-precio'].forEach(id => {
+            const el = document.getElementById(id);
+            if (!el.value.trim()) { el.classList.add('ring-2','ring-red-500'); setTimeout(() => el.classList.remove('ring-2','ring-red-500'), 1500); }
+        });
+        return;
+    }
+
+    const btn = document.getElementById('btn-registrar');
+    btn.disabled = true;
+    btn.innerText = 'Guardando...';
+    btn.classList.add('opacity-60');
+
+    try {
+        const res = await fetch('https://finanzasluciano.onrender.com/comprar', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ ticker: t, cantidad: parseFloat(c), precio_unitario: parseFloat(p) }),
+        });
+        const data = await res.json();
+        if (data.status === 'success') {
+            // Agregar al historial rápido
+            historialSesion.unshift({ ticker: t, cantidad: c, precio: p });
+            if (historialSesion.length > 5) historialSesion.pop();
+            const lista = document.getElementById('historial-lista');
+            document.getElementById('historial-rapido').classList.remove('hidden');
+            lista.innerHTML = historialSesion.map(h =>
+                `<div class="flex justify-between text-[10px] text-gray-400 bg-gray-700/50 px-2 py-1 rounded">
+                    <span class="font-bold text-blue-400">${h.ticker}</span>
+                    <span>${h.cantidad} u. @ $${parseFloat(h.precio).toFixed(2)}</span>
+                </div>`
+            ).join('');
+
+            // Limpiar sólo ticker y cantidad, mantener precio para siguiente entrada
+            document.getElementById('input-ticker').value   = '';
+            document.getElementById('input-cantidad').value = '';
+            document.getElementById('input-ticker').focus();
+
+            btn.innerText = '✓ Registrado!';
+            btn.classList.remove('opacity-60');
+            btn.classList.replace('bg-blue-600','bg-green-600');
+            setTimeout(() => {
+                btn.innerText = 'Registrar Compra';
+                btn.classList.replace('bg-green-600','bg-blue-600');
+            }, 1500);
+
+            cargarDatos();
+        }
+    } catch(e) {
+        btn.innerText = 'Error — reintentá';
+        btn.classList.remove('opacity-60');
+        setTimeout(() => { btn.innerText = 'Registrar Compra'; }, 2000);
+    } finally {
+        btn.disabled = false;
+    }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
