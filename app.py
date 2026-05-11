@@ -41,7 +41,7 @@ _yf_session.headers.update({
 })
 
 def yft(ticker: str) -> yf.Ticker:
-    return yf.Ticker(ticker, session=_yf_session)
+    return yf.Ticker(ticker)
 
 class TransaccionSchema(BaseModel):
     ticker: str
@@ -94,7 +94,7 @@ def get_precio_actual(ticker: str) -> float:
     try:
         data = yf.download(
             ticker, period="2d", auto_adjust=True,
-            progress=False, session=_yf_session
+            progress=False
         )
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
@@ -309,7 +309,7 @@ def get_history(ticker: str, period: str = "1y") -> pd.DataFrame:
     try:
         data = yf.download(
             ticker, period=period, auto_adjust=True,
-            progress=False, session=_yf_session
+            progress=False
         )
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
