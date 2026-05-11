@@ -67,9 +67,14 @@ def get_precio_actual(ticker: str) -> float:
     except Exception:
         pass
 
-    # Fallback 2: history
+    # Fallback 2: yf.download (endpoint diferente)
     try:
-        data = tk.history(period="2d")
+        data = yf.download(
+            ticker, period="2d", auto_adjust=True,
+            progress=False, session=_yf_session
+        )
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
         if not data.empty:
             precio = float(data['Close'].iloc[-1])
             _price_cache[ticker] = (precio, now)
@@ -135,32 +140,64 @@ def obtener_resumen():
 @app.get("/velas/{ticker}")
 def obtener_velas(ticker: str, period: str = Query("1mo")):
     try:
-        tk   = yft(ticker)
-        data = tk.history(period=period)
+        # Usar yf.download() que usa un endpoint diferente y evita rate-limit
+        data = yf.download(
+            ticker, period=period, auto_adjust=True,
+            progress=False, session=_yf_session
+        )
+        if data.empty:
+            # Fallback: tk.history()
+            data = yft(ticker).history(period=period)
         if data.empty:
             return []
+
+        # yf.download puede devolver MultiIndex en columnas si es multi-ticker
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
+
         result = []
         for idx, row in data.iterrows():
-            result.append({
-                "time":   idx.strftime('%Y-%m-%d'),
-                "open":   round(float(row['Open']),  2),
-                "high":   round(float(row['High']),  2),
-                "low":    round(float(row['Low']),   2),
-                "close":  round(float(row['Close']), 2),
-                "volume": int(row['Volume']),
-            })
+            try:
+                result.append({
+                    "time":   idx.strftime('%Y-%m-%d') if hasattr(idx, 'strftime') else str(idx)[:10],
+                    "open":   round(float(row['Open']),  2),
+                    "high":   round(float(row['High']),  2),
+                    "low":    round(float(row['Low']),   2),
+                    "close":  round(float(row['Close']), 2),
+                    "volume": int(row['Volume']) if 'Volume' in row else 0,
+                })
+            except Exception:
+                continue
         return result
     except Exception as e:
         print(f"Error velas: {e}")
         return []
 
 
+def get_history(ticker: str, period: str = "1y") -> pd.DataFrame:
+    """Intenta yf.download() primero, luego tk.history() como fallback."""
+    try:
+        data = yf.download(
+            ticker, period=period, auto_adjust=True,
+            progress=False, session=_yf_session
+        )
+        if isinstance(data.columns, pd.MultiIndex):
+            data.columns = data.columns.get_level_values(0)
+        if not data.empty:
+            return data
+    except Exception:
+        pass
+    try:
+        return yft(ticker).history(period=period)
+    except Exception:
+        return pd.DataFrame()
+
+
 # ─── Análisis técnico ─────────────────────────────────────────────────────────
 @app.get("/analisis/{ticker}")
 def obtener_analisis(ticker: str):
     try:
-        tk   = yft(ticker)
-        data = tk.history(period="1y")
+        data = get_history(ticker, "1y")
         if data.empty or len(data) < 50:
             return {"error": "Datos insuficientes"}
 
@@ -184,7 +221,7 @@ def obtener_analisis(ticker: str):
         # Beta vs SPY
         beta = 1.0
         try:
-            spy     = yft("SPY").history(period="1y")
+            spy     = get_history("SPY", "1y")
             spy_ret = spy['Close'].pct_change().dropna()
             common  = retornos.index.intersection(spy_ret.index)
             if len(common) > 20:
@@ -221,8 +258,7 @@ def obtener_analisis(ticker: str):
 @app.get("/montecarlo/{ticker}")
 def obtener_montecarlo(ticker: str, dias: int = Query(30)):
     try:
-        tk   = yft(ticker)
-        data = tk.history(period="1y")
+        data = get_history(ticker, "1y")
         if data.empty or len(data) < 30:
             return {"error": "Datos insuficientes"}
 
@@ -361,7 +397,7 @@ def analisis_ia(ticker: str):
         # Score técnico basado en tendencia de 6 meses
         score_tecnico = 50
         try:
-            data = tk.history(period="6mo")
+            data = get_history(ticker, "6mo")
             if not data.empty and len(data) >= 50:
                 close    = data['Close']
                 sma20    = float(close.rolling(20).mean().iloc[-1])
