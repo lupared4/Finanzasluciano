@@ -48,17 +48,34 @@ class TransaccionSchema(BaseModel):
     cantidad: float
     precio_unitario: float
 
-# ─── Cache en memoria para precios (TTL 60 segundos) ─────────────────────────
-_price_cache: dict = {}
-_CACHE_TTL = 60
+# ─── Cache en memoria ────────────────────────────────────────────────────────
+_price_cache:    dict = {}  # precio actual: TTL 60s
+_history_cache:  dict = {}  # histórico OHLCV: TTL 10 min
+_endpoint_cache: dict = {}  # analisis/montecarlo/ia/indicadores: TTL 5 min
+
+_CACHE_TTL          = 60       # 1 minuto para precios
+_HISTORY_CACHE_TTL  = 600      # 10 minutos para histórico
+_ENDPOINT_CACHE_TTL = 300      # 5 minutos para endpoints de análisis
+_INDICADORES_TTL    = 3600     # 1 hora para indicadores fundamentales
+
+
+def _cache_get(store: dict, key: str, ttl: int):
+    """Retorna el valor cacheado si es válido, sino None."""
+    if key in store:
+        value, ts = store[key]
+        if time.time() - ts < ttl:
+            return value
+    return None
+
+
+def _cache_set(store: dict, key: str, value):
+    store[key] = (value, time.time())
 
 def get_precio_actual(ticker: str) -> float:
     """Obtiene el precio con cache y múltiples fallbacks."""
-    now = time.time()
-    if ticker in _price_cache:
-        precio, ts = _price_cache[ticker]
-        if now - ts < _CACHE_TTL:
-            return precio
+    cached = _cache_get(_price_cache, ticker, _CACHE_TTL)
+    if cached is not None:
+        return cached
 
     precio = 0.0
     tk = yft(ticker)
@@ -68,7 +85,7 @@ def get_precio_actual(ticker: str) -> float:
         p = tk.fast_info.last_price
         if p and p > 0:
             precio = float(p)
-            _price_cache[ticker] = (precio, now)
+            _cache_set(_price_cache, ticker, precio)
             return precio
     except Exception:
         pass
@@ -83,13 +100,13 @@ def get_precio_actual(ticker: str) -> float:
             data.columns = data.columns.get_level_values(0)
         if not data.empty:
             precio = float(data['Close'].iloc[-1])
-            _price_cache[ticker] = (precio, now)
+            _cache_set(_price_cache, ticker, precio)
             return precio
     except Exception:
         pass
 
     # Fallback 3: devolver 0 sin crashear
-    _price_cache[ticker] = (0.0, now)
+    _cache_set(_price_cache, ticker, 0.0)
     return 0.0
 
 
@@ -263,15 +280,24 @@ def fetch_yahoo_v8(ticker: str, period: str = "1y") -> pd.DataFrame:
 
 
 def get_history(ticker: str, period: str = "1y") -> pd.DataFrame:
-    """Obtiene histórico: Stooq → Yahoo v8 API → yf.download → tk.history."""
-    # Intento 1: Stooq (sin rate-limit desde cualquier servidor)
-    df = fetch_stooq(ticker, period)
-    if not df.empty:
-        return df
+    """Obtiene histórico con caché de 10 min: Stooq → Yahoo v8 → yf.download → tk.history."""
+    cache_key = f"{ticker}_{period}"
+    cached = _cache_get(_history_cache, cache_key, _HISTORY_CACHE_TTL)
+    if cached is not None:
+        return cached
+
+    result = pd.DataFrame()
+
+    # Intento 1: Stooq
+    result = fetch_stooq(ticker, period)
+    if not result.empty:
+        _cache_set(_history_cache, cache_key, result)
+        return result
     # Intento 2: API v8 directa de Yahoo
-    df = fetch_yahoo_v8(ticker, period)
-    if not df.empty:
-        return df
+    result = fetch_yahoo_v8(ticker, period)
+    if not result.empty:
+        _cache_set(_history_cache, cache_key, result)
+        return result
     # Intento 3: yf.download
     try:
         data = yf.download(
@@ -281,12 +307,16 @@ def get_history(ticker: str, period: str = "1y") -> pd.DataFrame:
         if isinstance(data.columns, pd.MultiIndex):
             data.columns = data.columns.get_level_values(0)
         if not data.empty:
+            _cache_set(_history_cache, cache_key, data)
             return data
     except Exception:
         pass
     # Intento 4: tk.history
     try:
-        return yft(ticker).history(period=period)
+        result = yft(ticker).history(period=period)
+        if not result.empty:
+            _cache_set(_history_cache, cache_key, result)
+        return result
     except Exception:
         return pd.DataFrame()
 
@@ -294,6 +324,9 @@ def get_history(ticker: str, period: str = "1y") -> pd.DataFrame:
 # ─── Análisis técnico ─────────────────────────────────────────────────────────
 @app.get("/analisis/{ticker}")
 def obtener_analisis(ticker: str):
+    cached = _cache_get(_endpoint_cache, f"analisis_{ticker}", _ENDPOINT_CACHE_TTL)
+    if cached is not None:
+        return cached
     try:
         data = get_history(ticker, "1y")
         if data.empty or len(data) < 50:
@@ -338,7 +371,7 @@ def obtener_analisis(ticker: str):
         else:
             tendencia = "LATERAL"
 
-        return {
+        result = {
             "precio_actual": precio_actual,
             "sma20":         sma20,
             "sma50":         sma50,
@@ -347,6 +380,8 @@ def obtener_analisis(ticker: str):
             "rsi":           rsi,
             "tendencia":     tendencia,
         }
+        _cache_set(_endpoint_cache, f"analisis_{ticker}", result)
+        return result
     except Exception as e:
         print(f"Error analisis: {e}")
         return {"error": str(e)}
@@ -355,6 +390,10 @@ def obtener_analisis(ticker: str):
 # ─── Monte Carlo ──────────────────────────────────────────────────────────────
 @app.get("/montecarlo/{ticker}")
 def obtener_montecarlo(ticker: str, dias: int = Query(30)):
+    cache_key = f"montecarlo_{ticker}_{dias}"
+    cached = _cache_get(_endpoint_cache, cache_key, _ENDPOINT_CACHE_TTL)
+    if cached is not None:
+        return cached
     try:
         data = get_history(ticker, "1y")
         if data.empty or len(data) < 30:
@@ -382,6 +421,8 @@ def obtener_montecarlo(ticker: str, dias: int = Query(30)):
             "p95": [round(float(np.percentile(simulaciones[d], 95)), 2) for d in range(dias)],
             "precio_actual": round(precio_hoy, 2),
         }
+        _cache_set(_endpoint_cache, cache_key, result)
+        return result
     except Exception as e:
         print(f"Error Monte Carlo: {e}")
         return {"error": str(e)}
@@ -462,6 +503,9 @@ def borrar_activo(ticker: str):
 # ── IA / Análisis de Sentimiento ─────────────────────────────────────────────
 @app.get("/ia/{ticker}")
 def analisis_ia(ticker: str):
+    cached = _cache_get(_endpoint_cache, f"ia_{ticker}", _ENDPOINT_CACHE_TTL)
+    if cached is not None:
+        return cached
     try:
         tk = yft(ticker)
         try:
@@ -546,7 +590,7 @@ def analisis_ia(ticker: str):
         elif score_final >= 25: label = "PRECAUCIÓN"
         else:                   label = "VENDER"
 
-        return {
+        result = {
             "score":         score_final,
             "label":         label,
             "precio_actual": round(precio_actual, 2),
@@ -558,6 +602,8 @@ def analisis_ia(ticker: str):
             "recomendacion": rec_key,
             "breakdown":     breakdown,
         }
+        _cache_set(_endpoint_cache, f"ia_{ticker}", result)
+        return result
     except Exception as e:
         print(f"Error IA {ticker}: {e}")
         return {"error": str(e)}
@@ -704,6 +750,8 @@ def earnings_report(ticker: str):
             "prox_rev_est":        rev_prox,
             "eps_historico":       eps_hist,
         }
+        _cache_set(_endpoint_cache, f"ia_{ticker}", result)
+        return result
     except Exception as e:
         print(f"Error earnings {ticker}: {e}")
         return {"error": str(e)}
@@ -713,6 +761,9 @@ def earnings_report(ticker: str):
 # ── Indicadores Financieros Fundamentales ────────────────────────────────────
 @app.get("/indicadores/{ticker}")
 def indicadores_financieros(ticker: str):
+    cached = _cache_get(_endpoint_cache, f"indicadores_{ticker}", _INDICADORES_TTL)
+    if cached is not None:
+        return cached
     try:
         tk = yft(ticker)
         try:
@@ -780,7 +831,7 @@ def indicadores_financieros(ticker: str):
         if not logo_url:
             logo_url = info.get('logo_url') or None
 
-        return {
+        result = {
             "ticker":            ticker.upper(),
             "nombre":            info.get('longName', ticker),
             "sector":            info.get('sector', '—'),
@@ -805,6 +856,8 @@ def indicadores_financieros(ticker: str):
             "revenue_growth":    revenue_growth,
             "earnings_growth":   earnings_growth,
         }
+        _cache_set(_endpoint_cache, f"indicadores_{ticker}", result)
+        return result
     except Exception as e:
         print(f"Error indicadores {ticker}: {e}")
         return {"error": str(e)}
