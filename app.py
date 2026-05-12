@@ -775,45 +775,76 @@ def earnings_report(ticker: str):
                         "fecha":    idx.strftime('%b %Y') if hasattr(idx, 'strftime') else str(idx)[:10],
                         "estimado": safe(row.get('epsEstimate'), 4),
                         "real":     safe(row.get('epsActual'), 4),
-                        "sorpresa": safe(row.get('surprisePercent'), 2),
+                        "sorpresa": safe(row.get('surprisePercent') * 100 if row.get('surprisePercent') is not None else None, 2),
                     })
         except Exception:
             pass
 
-        # Próximos earnings desde calendar
-        cal        = tk.calendar
+        # ── fast_info: price, 52w, market_cap (confiable en Render) ─────────
+        fi_price = fi_high = fi_low = fi_mcap = None
+        try:
+            fi2       = tk.fast_info
+            fi_price  = float(fi2.last_price  or 0)
+            fi_high   = safe(fi2.year_high)
+            fi_low    = safe(fi2.year_low)
+            fi_mcap   = fi2.market_cap
+        except Exception:
+            pass
+
+        # ── Próximos earnings desde calendar (envuelto en try/except) ────────
         prox_fecha = None
         eps_prox_bajo   = None
         eps_prox_medio  = None
         eps_prox_alto   = None
         rev_prox        = None
+        try:
+            cal = tk.calendar
+            if cal and isinstance(cal, dict):
+                fechas = cal.get('Earnings Date', [])
+                if not isinstance(fechas, list): fechas = [fechas]
+                if fechas and hasattr(fechas[0], 'strftime'):
+                    prox_fecha = fechas[0].strftime('%d/%m/%Y')
+                eps_prox_bajo  = safe(cal.get('Earnings Low'),     4)
+                eps_prox_medio = safe(cal.get('Earnings Average'), 4)
+                eps_prox_alto  = safe(cal.get('Earnings High'),    4)
+                rv = cal.get('Revenue Average')
+                rev_prox = int(rv) if rv is not None and rv == rv else None
+        except Exception:
+            pass
 
-        if cal and isinstance(cal, dict):
-            fechas = cal.get('Earnings Date', [])
-            if not isinstance(fechas, list): fechas = [fechas]
-            if fechas and hasattr(fechas[0], 'strftime'):
-                prox_fecha = fechas[0].strftime('%d/%m/%Y')
-            eps_prox_bajo  = safe(cal.get('Earnings Low'),     4)
-            eps_prox_medio = safe(cal.get('Earnings Average'), 4)
-            eps_prox_alto  = safe(cal.get('Earnings High'),    4)
-            rev_prox = int(cal.get('Revenue Average')) \
-                if cal.get('Revenue Average') is not None and cal.get('Revenue Average') == cal.get('Revenue Average') \
-                else None
+        # ── EPS TTM desde income_stmt si tk.info no trajo datos ──────────────
+        eps_ttm_calc = safe(info.get('trailingEps'), 4)
+        if eps_ttm_calc is None and fi_price:
+            try:
+                inc2 = tk.income_stmt
+                ni2 = None
+                sh2 = None
+                for lbl in inc2.index:
+                    if 'net income' in str(lbl).lower() and 'minority' not in str(lbl).lower():
+                        ni2 = float(inc2.loc[lbl].iloc[0]); break
+                fi3 = tk.fast_info
+                sh2 = float(fi3.shares or 0)
+                if ni2 and sh2 > 0:
+                    eps_ttm_calc = safe(ni2 / sh2, 4)
+            except Exception:
+                pass
 
+        pe_t = safe(info.get('trailingPE')) or (safe(fi_price / eps_ttm_calc, 2) if eps_ttm_calc and eps_ttm_calc > 0 else None)
         dy = info.get('dividendYield')
+
         return {
             "nombre":              info.get('longName', ticker),
             "sector":              info.get('sector', '—'),
             "industria":           info.get('industry', '—'),
             "descripcion":         (info.get('longBusinessSummary') or '')[:500],
-            "pe_trailing":         safe(info.get('trailingPE')),
+            "pe_trailing":         pe_t,
             "pe_forward":          safe(info.get('forwardPE')),
-            "eps_ttm":             safe(info.get('trailingEps'), 4),
+            "eps_ttm":             eps_ttm_calc,
             "eps_forward":         safe(info.get('forwardEps'), 4),
-            "market_cap":          info.get('marketCap'),
+            "market_cap":          fi_mcap or info.get('marketCap'),
             "dividendo_pct":       safe(dy * 100 if dy else None),
-            "high_52w":            safe(info.get('fiftyTwoWeekHigh')),
-            "low_52w":             safe(info.get('fiftyTwoWeekLow')),
+            "high_52w":            fi_high  or safe(info.get('fiftyTwoWeekHigh')),
+            "low_52w":             fi_low   or safe(info.get('fiftyTwoWeekLow')),
             "target_bajo":         safe(info.get('targetLowPrice')),
             "target_medio":        safe(info.get('targetMeanPrice')),
             "target_alto":         safe(info.get('targetHighPrice')),
@@ -825,8 +856,6 @@ def earnings_report(ticker: str):
             "prox_rev_est":        rev_prox,
             "eps_historico":       eps_hist,
         }
-        _cache_set(_endpoint_cache, f"ia_{ticker}", result)
-        return result
     except Exception as e:
         print(f"Error earnings {ticker}: {e}")
         return {"error": str(e)}
