@@ -695,55 +695,30 @@ def calendario_earnings(tickers: str = Query(default="")):
             eps_bajo  = None
             rev_est   = None
 
-            # ── Método 1: curl_cffi con crumb (principal) ─────────────────────
-            cal_data = fetch_calendar_cffi(ticker)
-            eb = cal_data.get("earnings", {})
-            if eb:
-                fechas_raw = eb.get("earningsDate", [])
-                for f_obj in fechas_raw:
-                    raw_ts = f_obj.get("raw") if isinstance(f_obj, dict) else None
-                    if raw_ts:
-                        ts = pd.Timestamp(raw_ts, unit='s', tz='UTC')
-                        if ts >= now:
-                            fecha_str = ts.strftime('%Y-%m-%d')
-                            break
-                # Si no hay fecha futura, tomar la más reciente de todas
-                if not fecha_str and fechas_raw:
-                    last = fechas_raw[-1]
-                    raw_ts = last.get("raw") if isinstance(last, dict) else None
-                    if raw_ts:
-                        fecha_str = pd.Timestamp(raw_ts, unit='s', tz='UTC').strftime('%Y-%m-%d')
-                eps_est  = get_raw(eb, "earningsAverage")
-                eps_alto = get_raw(eb, "earningsHigh")
-                eps_bajo = get_raw(eb, "earningsLow")
-                rev_est  = get_raw(eb, "revenueAverage")
+            # ── Método 1: tk.calendar via yfinance (usa curl_cffi internamente)
+            try:
+                tk  = yft(ticker)
+                cal = tk.calendar
+                if cal is not None and isinstance(cal, dict):
+                    fechas = cal.get('Earnings Date', [])
+                    if not isinstance(fechas, list):
+                        fechas = [fechas]
+                    for f in fechas:
+                        if hasattr(f, 'strftime'):
+                            ts = pd.Timestamp(f)
+                            if ts.tzinfo is None:
+                                ts = ts.tz_localize('UTC')
+                            if ts >= now:
+                                fecha_str = f.strftime('%Y-%m-%d')
+                                break
+                    eps_est  = cal.get('Earnings Average')
+                    eps_alto = cal.get('Earnings High')
+                    eps_bajo = cal.get('Earnings Low')
+                    rev_est  = cal.get('Revenue Average')
+            except Exception:
+                pass
 
-            # ── Método 2: yfinance tk.calendar como fallback ──────────────────
-            if not fecha_str:
-                try:
-                    tk  = yft(ticker)
-                    cal = tk.calendar
-                    if cal is not None and isinstance(cal, dict):
-                        fechas = cal.get('Earnings Date', [])
-                        if not isinstance(fechas, list):
-                            fechas = [fechas]
-                        for f in fechas:
-                            if hasattr(f, 'strftime'):
-                                ts = pd.Timestamp(f)
-                                if ts.tzinfo is None:
-                                    ts = ts.tz_localize('UTC')
-                                if ts >= now:
-                                    fecha_str = f.strftime('%Y-%m-%d')
-                                    break
-                        if not eps_est:
-                            eps_est  = cal.get('Earnings Average')
-                            eps_alto = cal.get('Earnings High')
-                            eps_bajo = cal.get('Earnings Low')
-                            rev_est  = cal.get('Revenue Average')
-                except Exception:
-                    pass
-
-            # ── Método 3: earnings_dates ──────────────────────────────────────
+            # ── Método 2: earnings_dates como fallback ────────────────────────
             if not fecha_str:
                 try:
                     tk = yft(ticker)
@@ -781,7 +756,10 @@ def calendario_earnings(tickers: str = Query(default="")):
 def earnings_report(ticker: str):
     try:
         tk   = yft(ticker)
-        info = tk.info or {}
+        try:
+            info = tk.info or {}
+        except Exception:
+            info = {}
 
         def safe(v, decimals=2):
             try: return round(float(v), decimals) if v is not None and v == v else None
@@ -862,93 +840,108 @@ def indicadores_financieros(ticker: str):
     if cached is not None:
         return cached
     try:
-        # ── Método principal: quoteSummary via curl_cffi (confiable en Render) ──
-        qs = fetch_quote_summary(ticker, [
-            "financialData", "defaultKeyStatistics", "summaryProfile", "price", "summaryDetail"
-        ])
-        fd  = qs.get("financialData", {})        # ROA, ROE, márgenes, crecimiento
-        ks  = qs.get("defaultKeyStatistics", {})  # EPS, PEG, priceToBook, etc.
-        sp  = qs.get("summaryProfile", {})        # sector, industry, website
-        pr  = qs.get("price", {})                 # longName, marketCap
-        sd  = qs.get("summaryDetail", {})         # trailingPE, forwardPE
+        tk = yft(ticker)
 
-        def g(d, key, decimals=4):
-            v = d.get(key)
-            if isinstance(v, dict): v = v.get("raw")
-            try: return round(float(v), decimals) if v is not None and v == v else None
+        def sn(v, d=4):
+            try: return round(float(v), d) if v is not None and v == v else None
             except: return None
 
-        # Fallback: tk.info si quoteSummary devolvió vacío
-        info = {}
-        if not fd and not ks:
-            try:
-                info = yft(ticker).info or {}
-            except Exception:
-                pass
-
-        def gi(key, decimals=4):
-            return safe_num(info.get(key), decimals)
-
-        def safe_num(v, decimals=4):
-            try: return round(float(v), decimals) if v is not None and v == v else None
-            except: return None
-
-        roa             = g(fd, "returnOnAssets")       or gi("returnOnAssets")
-        roe             = g(fd, "returnOnEquity")        or gi("returnOnEquity")
-        net_margin      = g(fd, "profitMargins")         or gi("profitMargins")
-        gross_margins   = g(fd, "grossMargins")          or gi("grossMargins")
-        op_margins      = g(fd, "operatingMargins")      or gi("operatingMargins")
-        ebitda_margins  = g(fd, "ebitdaMargins")         or gi("ebitdaMargins")
-        current_ratio   = g(fd, "currentRatio", 2)       or gi("currentRatio", 2)
-        debt_to_equity  = g(fd, "debtToEquity", 2)       or gi("debtToEquity", 2)
-        revenue_growth  = g(fd, "revenueGrowth")         or gi("revenueGrowth")
-        earnings_growth = g(fd, "earningsGrowth")        or gi("earningsGrowth")
-
-        eps_ttm     = g(ks, "trailingEps", 4)    or gi("trailingEps", 4)
-        eps_forward = g(ks, "forwardEps", 4)     or gi("forwardEps", 4)
-        pe_trailing = g(sd, "trailingPE", 2) or g(ks, "trailingPE", 2) or g(fd, "trailingPE", 2) or gi("trailingPE", 2)
-        pe_forward  = g(sd, "forwardPE", 2)  or g(ks, "forwardPE", 2)  or g(fd, "forwardPE", 2)  or gi("forwardPE", 2)
-        peg_ratio   = g(ks, "pegRatio", 2)       or gi("pegRatio", 2)
-        pb          = g(ks, "priceToBook", 2)    or gi("priceToBook", 2)
-        book_value  = g(ks, "bookValue", 2)      or gi("bookValue", 2)
-
-        # CFPS = operatingCashflow / sharesOutstanding
-        cfps = None
+        # ── Precio actual (fast_info — confiable en Render) ───────────────────
+        price  = 0.0
+        shares = 0.0
         try:
-            ocf    = g(fd, "operatingCashflow") or info.get("operatingCashflow")
-            shares = g(ks, "sharesOutstanding") or info.get("sharesOutstanding")
-            if ocf and shares and float(shares) > 0:
-                cfps = round(float(ocf) / float(shares), 4)
+            fi     = tk.fast_info
+            price  = float(fi.last_price or 0)
+            shares = float(fi.shares      or 0)
         except Exception:
             pass
 
-        # Debt to Asset desde balance_sheet (yfinance)
-        debt_to_asset = None
+        # ── Balance sheet (confiable en Render) ───────────────────────────────
+        td = ta = se = cur_assets = cur_liab = None
         try:
-            tk = yft(ticker)
             bs = tk.balance_sheet
             if bs is not None and not bs.empty:
-                td, ta = None, None
-                for label in bs.index:
-                    ls = str(label).lower()
-                    if 'total debt' in ls or 'totaldebt' in ls:
-                        td = float(bs.loc[label].iloc[0])
-                    if 'total assets' in ls or 'totalassets' in ls:
-                        ta = float(bs.loc[label].iloc[0])
-                if td is not None and ta and ta > 0:
-                    debt_to_asset = round(td / ta, 4)
+                for lbl in bs.index:
+                    ls = str(lbl).lower()
+                    v  = bs.loc[lbl].iloc[0]
+                    if   'total debt'          in ls: td        = float(v)
+                    elif 'total assets'        in ls: ta        = float(v)
+                    elif 'stockholders equity' in ls or 'total equity gross' in ls: se = float(v)
+                    elif 'current assets'      in ls: cur_assets = float(v)
+                    elif 'current liabilities' in ls: cur_liab  = float(v)
         except Exception:
             pass
 
-        # Nombre, sector, logo
-        nombre  = pr.get("longName", {})
-        if isinstance(nombre, dict): nombre = nombre.get("raw", ticker)
-        nombre  = nombre or sp.get("longName") or info.get("longName", ticker)
+        # ── Income statement (confiable en Render) ────────────────────────────
+        revenue = revenue_prev = net_income = gross_profit = op_income = ebitda = None
+        try:
+            inc = tk.income_stmt
+            if inc is not None and not inc.empty:
+                for lbl in inc.index:
+                    ls = str(lbl).lower()
+                    cols = inc.loc[lbl].dropna()
+                    if not len(cols): continue
+                    v0 = float(cols.iloc[0])
+                    if   'total revenue'    in ls:
+                        revenue = v0
+                        if len(cols) >= 2: revenue_prev = float(cols.iloc[1])
+                    elif 'net income' in ls and 'minority' not in ls and 'common' not in ls:
+                        if net_income is None: net_income = v0
+                    elif 'gross profit'     in ls: gross_profit = v0
+                    elif 'operating income' in ls or 'ebit ' in ls: op_income = v0
+                    elif 'ebitda'           in ls: ebitda = v0
+        except Exception:
+            pass
 
-        sector  = sp.get("sector") or info.get("sector", "—")
+        # ── Cash flow (confiable en Render) ───────────────────────────────────
+        ocf = None
+        try:
+            cf = tk.cash_flow
+            if cf is not None and not cf.empty:
+                for lbl in cf.index:
+                    if 'operating' in str(lbl).lower() and 'cash' in str(lbl).lower():
+                        ocf = float(cf.loc[lbl].iloc[0])
+                        break
+        except Exception:
+            pass
 
-        website = sp.get("website") or info.get("website", "")
-        domain  = (website or "").replace("https://","").replace("http://","").split("/")[0]
+        # ── Calcular ratios ───────────────────────────────────────────────────
+        roa            = sn(net_income / ta,      4) if net_income and ta   and ta   > 0 else None
+        roe            = sn(net_income / se,      4) if net_income and se   and se   > 0 else None
+        net_margin     = sn(net_income / revenue, 4) if net_income and revenue       > 0 else None
+        gross_margin   = sn(gross_profit / revenue, 4) if gross_profit and revenue   > 0 else None
+        op_margin      = sn(op_income / revenue,  4) if op_income   and revenue      > 0 else None
+        ebitda_margin  = sn(ebitda    / revenue,  4) if ebitda      and revenue      > 0 else None
+        revenue_growth = sn((revenue - revenue_prev) / abs(revenue_prev), 4) if revenue and revenue_prev and revenue_prev != 0 else None
+        debt_to_asset  = sn(td / ta, 4) if td is not None and ta and ta > 0 else None
+        debt_to_equity = sn(td / se, 2) if td is not None and se and se > 0 else None
+        current_ratio  = sn(cur_assets / cur_liab, 2) if cur_assets and cur_liab and cur_liab > 0 else None
+        bvps           = sn(se / shares, 2) if se and shares > 0 else None
+        cfps           = sn(ocf / shares, 4) if ocf and shares > 0 else None
+        eps_ttm        = sn(net_income / shares, 4) if net_income and shares > 0 else None
+        pe_trailing    = sn(price / eps_ttm, 2) if price and eps_ttm and eps_ttm > 0 else None
+        pb             = sn(price / (se / shares), 2) if price and se and shares > 0 else None
+
+        # ── Datos opcionales de tk.info (puede fallar en Render — no es crítico)
+        eps_forward = pe_forward = peg = earnings_growth = None
+        sector = "—"; nombre = ticker; website = ""
+        try:
+            info = tk.info or {}
+            eps_forward     = sn(info.get('forwardEps'),       4)
+            pe_forward      = sn(info.get('forwardPE'),        2)
+            peg             = sn(info.get('pegRatio'),         2)
+            earnings_growth = sn(info.get('earningsGrowth'))
+            sector  = info.get('sector', '—') or '—'
+            nombre  = info.get('longName', ticker) or ticker
+            website = info.get('website', '') or ''
+        except Exception:
+            pass
+
+        # Pe forward alternativo si tk.info falló
+        if pe_forward is None and eps_forward and price and eps_forward > 0:
+            pe_forward = sn(price / eps_forward, 2)
+
+        domain   = website.replace('https://','').replace('http://','').split('/')[0]
         logo_url = f"https://logo.clearbit.com/{domain}" if domain else None
 
         result = {
@@ -961,17 +954,17 @@ def indicadores_financieros(ticker: str):
             "eps_ttm":          eps_ttm,
             "eps_forward":      eps_forward,
             "net_margin":       net_margin,
-            "gross_margin":     gross_margins,
-            "operating_margin": op_margins,
-            "ebitda_margin":    ebitda_margins,
+            "gross_margin":     gross_margin,
+            "operating_margin": op_margin,
+            "ebitda_margin":    ebitda_margin,
             "debt_to_asset":    debt_to_asset,
             "debt_to_equity":   debt_to_equity,
             "current_ratio":    current_ratio,
-            "bvps":             book_value,
+            "bvps":             bvps,
             "cfps":             cfps,
             "pe_trailing":      pe_trailing,
             "pe_forward":       pe_forward,
-            "peg_ratio":        peg_ratio,
+            "peg_ratio":        peg,
             "price_to_book":    pb,
             "revenue_growth":   revenue_growth,
             "earnings_growth":  earnings_growth,
