@@ -1,9 +1,10 @@
 fastapi
-uvicorn
+uvicorn[standard]
 sqlalchemy
-yfinance>=0.2.40
+yfinance==1.3.0
 numpy
 pandas
 pydantic
 pandas-datareader
 curl_cffi
+requests
