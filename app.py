@@ -1198,6 +1198,207 @@ def order_book(ticker: str):
         return {"error": str(e)}
 
 
+# ── Panel de Mercado: Índices MERVAL, S&P 500, NASDAQ ────────────────────────
+_INDICES_DEF = [
+    {"nombre": "S&P 500",     "sym": "^GSPC", "color": "blue"},
+    {"nombre": "NASDAQ",      "sym": "^IXIC", "color": "purple"},
+    {"nombre": "MERVAL",      "sym": "^MERV", "color": "emerald"},
+    {"nombre": "Dow Jones",   "sym": "^DJI",  "color": "yellow"},
+]
+
+@app.get("/mercado")
+def panel_mercado():
+    cached = _cache_get(_endpoint_cache, "mercado_indices", 300)
+    if cached is not None:
+        return cached
+    result = []
+    for idx in _INDICES_DEF:
+        try:
+            sym = idx["sym"]
+            # Histórico 1 año para calcular cambios mensuales/anuales y sparkline
+            hist = yf.download(sym, period="1y", auto_adjust=True, progress=False)
+            if isinstance(hist.columns, pd.MultiIndex):
+                hist.columns = hist.columns.get_level_values(0)
+            if hist.empty:
+                continue
+            closes = hist["Close"].dropna()
+            price  = float(closes.iloc[-1])
+            prev   = float(closes.iloc[-2]) if len(closes) >= 2 else price
+            # Cambio diario
+            cambio_dia = round((price - prev) / prev * 100, 2) if prev else 0
+            # Cambio mensual (~21 ruedas)
+            mes_ago = float(closes.iloc[-22]) if len(closes) >= 22 else float(closes.iloc[0])
+            cambio_mes = round((price - mes_ago) / mes_ago * 100, 2) if mes_ago else 0
+            # Cambio anual
+            anio_ago = float(closes.iloc[0])
+            cambio_anio = round((price - anio_ago) / anio_ago * 100, 2) if anio_ago else 0
+            # Sparkline: últimos 30 puntos normalizados (0-100)
+            spark_raw = [float(x) for x in closes.iloc[-30:].tolist()]
+            mn, mx = min(spark_raw), max(spark_raw)
+            spark = [round((v - mn) / (mx - mn) * 100, 1) if mx > mn else 50 for v in spark_raw]
+
+            result.append({
+                "nombre":      idx["nombre"],
+                "sym":         sym,
+                "color":       idx["color"],
+                "precio":      round(price, 2),
+                "cambio_dia":  cambio_dia,
+                "cambio_mes":  cambio_mes,
+                "cambio_anio": cambio_anio,
+                "sparkline":   spark,
+            })
+        except Exception as e:
+            print(f"Error mercado {idx['sym']}: {e}")
+    _cache_set(_endpoint_cache, "mercado_indices", result)
+    return result
+
+
+# ── Top Movers: 10 mayores subidas y bajadas del día (S&P 500 curado) ─────────
+_SP500_CURADO = [
+    "AAPL","MSFT","GOOGL","AMZN","META","NVDA","TSLA","BRK-B","JPM","JNJ",
+    "V","WMT","MA","PG","HD","CVX","LLY","ABBV","MRK","PEP","KO","AVGO",
+    "CSCO","TMO","COST","ACN","DHR","NEE","LIN","MCD","TXN","UNH","CRM",
+    "BAC","ORCL","ADBE","NFLX","INTC","INTU","QCOM","AMD","HON","IBM","GS",
+    "CAT","BA","MMM","DE","GE","F","GM","DIS","PYPL","UBER","ABNB","SNOW",
+    "PLTR","COIN","RBLX","HOOD","ROKU","ZM","SHOP","SQ","MELI","NU","SPOT",
+]
+
+@app.get("/top-movers")
+def top_movers_endpoint():
+    cached = _cache_get(_endpoint_cache, "top_movers", 600)
+    if cached is not None:
+        return cached
+    try:
+        tickers_str = " ".join(_SP500_CURADO)
+        data = yf.download(tickers_str, period="5d", auto_adjust=True, progress=False)
+        if isinstance(data.columns, pd.MultiIndex):
+            closes = data["Close"]
+        else:
+            closes = data[["Close"]]
+
+        moves = []
+        for t in _SP500_CURADO:
+            try:
+                if t not in closes.columns:
+                    continue
+                col = closes[t].dropna()
+                if len(col) < 2:
+                    continue
+                price   = float(col.iloc[-1])
+                prev    = float(col.iloc[-2])
+                cambio  = round((price - prev) / prev * 100, 2) if prev else 0
+                moves.append({"ticker": t, "precio": round(price, 2), "cambio_dia": cambio})
+            except Exception:
+                continue
+
+        moves.sort(key=lambda x: x["cambio_dia"], reverse=True)
+        result = {
+            "ganadoras": moves[:10],
+            "perdedoras": moves[-10:][::-1],
+        }
+        _cache_set(_endpoint_cache, "top_movers", result)
+        return result
+    except Exception as e:
+        print(f"Error top-movers: {e}")
+        return {"ganadoras": [], "perdedoras": []}
+
+
+# ── Tendencias IA: acciones con potencial de crecimiento ─────────────────────
+_TENDENCIAS_POOL = [
+    "NVDA","MSFT","META","GOOGL","AMZN","TSLA","AAPL","AMD","AVGO","CRM",
+    "PLTR","SNOW","MELI","NU","SHOP","UBER","ABNB","COIN","RBLX","SPOT",
+    "LLY","NVO","ABBV","TMO","DHR","ISRG","DXCM","MRNA","REGN","VRTX",
+    "NEE","ENPH","FSLR","BEP","SEDG","RUN","ARRY","CEG","VST","NRG",
+    "MA","V","PYPL","INTU","SQ","ADBE","ORCL","SAP","NOW","WDAY",
+]
+
+@app.get("/tendencias-ia")
+def tendencias_ia():
+    cached = _cache_get(_endpoint_cache, "tendencias_ia", 3600)
+    if cached is not None:
+        return cached
+    try:
+        tickers_str = " ".join(_TENDENCIAS_POOL)
+        data = yf.download(tickers_str, period="3mo", auto_adjust=True, progress=False)
+        if isinstance(data.columns, pd.MultiIndex):
+            closes = data["Close"]
+            volumes= data.get("Volume", pd.DataFrame())
+        else:
+            closes = data[["Close"]]
+            volumes = pd.DataFrame()
+
+        scored = []
+        for t in _TENDENCIAS_POOL:
+            try:
+                if t not in closes.columns:
+                    continue
+                col = closes[t].dropna()
+                if len(col) < 20:
+                    continue
+
+                price    = float(col.iloc[-1])
+                p1m_ago  = float(col.iloc[-22])  if len(col) >= 22 else float(col.iloc[0])
+                p3m_ago  = float(col.iloc[0])
+
+                mom_1m  = (price - p1m_ago)  / p1m_ago  if p1m_ago  else 0
+                mom_3m  = (price - p3m_ago)  / p3m_ago  if p3m_ago  else 0
+
+                # RSI(14)
+                diffs = col.diff().dropna()
+                gains = diffs.clip(lower=0)
+                loss  = (-diffs).clip(lower=0)
+                avg_g = gains.tail(14).mean()
+                avg_l = loss.tail(14).mean()
+                rsi   = 50.0
+                if avg_l > 0:
+                    rs  = avg_g / avg_l
+                    rsi = 100 - (100 / (1 + rs))
+
+                # fast_info para 52w range
+                try:
+                    fi  = yf.Ticker(t).fast_info
+                    y_h = float(fi.year_high  or price)
+                    y_l = float(fi.year_low   or price)
+                    pos_52w = (price - y_l) / (y_h - y_l) if y_h > y_l else 0.5
+                except Exception:
+                    pos_52w = 0.5
+
+                # Score compuesto (0-100)
+                score = 0
+                score += min(40, max(0, mom_1m * 200))   # momentum 1m contribuye hasta 40pts
+                score += min(20, max(0, mom_3m * 50))    # momentum 3m hasta 20pts
+                score += min(20, max(0, (rsi - 45) * 1.33)) if 45 < rsi < 70 else 0  # RSI zona sana
+                score += min(20, max(0, pos_52w * 20))   # posición 52w hasta 20pts
+
+                razones = []
+                if mom_1m > 0.04:  razones.append(f"+{mom_1m*100:.1f}% este mes")
+                if mom_3m > 0.10:  razones.append(f"+{mom_3m*100:.1f}% en 3 meses")
+                if 55 < rsi < 70:  razones.append(f"RSI saludable ({rsi:.0f})")
+                if pos_52w > 0.7:  razones.append("Cerca de máximos 52 semanas")
+                if pos_52w < 0.35: razones.append("Rebote desde mínimos")
+
+                if score >= 30 and razones:
+                    scored.append({
+                        "ticker":  t,
+                        "precio":  round(price, 2),
+                        "score":   round(score, 1),
+                        "mom_1m":  round(mom_1m * 100, 2),
+                        "mom_3m":  round(mom_3m * 100, 2),
+                        "rsi":     round(rsi, 1),
+                        "razones": razones[:3],
+                    })
+            except Exception:
+                continue
+
+        scored.sort(key=lambda x: x["score"], reverse=True)
+        result = scored[:12]
+        _cache_set(_endpoint_cache, "tendencias_ia", result)
+        return result
+    except Exception as e:
+        print(f"Error tendencias-ia: {e}")
+        return []
+
+
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8000))
