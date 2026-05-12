@@ -316,25 +316,13 @@ def fetch_yahoo_v8(ticker: str, period: str = "1y") -> pd.DataFrame:
 
 
 def get_history(ticker: str, period: str = "1y") -> pd.DataFrame:
-    """Obtiene histórico con caché de 10 min: Stooq → Yahoo v8 → yf.download → tk.history."""
+    """Obtiene histórico con caché de 10 min: yf.download → tk.history."""
     cache_key = f"{ticker}_{period}"
     cached = _cache_get(_history_cache, cache_key, _HISTORY_CACHE_TTL)
     if cached is not None:
         return cached
 
-    result = pd.DataFrame()
-
-    # Intento 1: Stooq
-    result = fetch_stooq(ticker, period)
-    if not result.empty:
-        _cache_set(_history_cache, cache_key, result)
-        return result
-    # Intento 2: API v8 directa de Yahoo
-    result = fetch_yahoo_v8(ticker, period)
-    if not result.empty:
-        _cache_set(_history_cache, cache_key, result)
-        return result
-    # Intento 3: yf.download
+    # Intento 1: yf.download (más rápido y confiable)
     try:
         data = yf.download(
             ticker, period=period, auto_adjust=True,
@@ -347,14 +335,17 @@ def get_history(ticker: str, period: str = "1y") -> pd.DataFrame:
             return data
     except Exception:
         pass
-    # Intento 4: tk.history
+
+    # Intento 2: tk.history
     try:
         result = yft(ticker).history(period=period)
         if not result.empty:
             _cache_set(_history_cache, cache_key, result)
-        return result
+            return result
     except Exception:
-        return pd.DataFrame()
+        pass
+
+    return pd.DataFrame()
 
 
 # ─── Análisis técnico ─────────────────────────────────────────────────────────
@@ -442,7 +433,7 @@ def obtener_montecarlo(ticker: str, dias: int = Query(30)):
         precio_hoy = float(close.iloc[-1])
 
         np.random.seed(42)
-        n_sim        = 500
+        n_sim        = 200  # reducido para velocidad
         simulaciones = np.zeros((dias, n_sim))
         for i in range(n_sim):
             precios = [precio_hoy]
@@ -450,7 +441,7 @@ def obtener_montecarlo(ticker: str, dias: int = Query(30)):
                 precios.append(precios[-1] * (1 + np.random.normal(mu, sigma)))
             simulaciones[:, i] = precios
 
-        return {
+        result = {
             "dias": list(range(1, dias + 1)),
             "p5":  [round(float(np.percentile(simulaciones[d],  5)), 2) for d in range(dias)],
             "p50": [round(float(np.percentile(simulaciones[d], 50)), 2) for d in range(dias)],
@@ -789,21 +780,15 @@ _EARNINGS_WATCHLIST = [
     # Mega caps tech
     "AAPL","MSFT","GOOGL","AMZN","META","NVDA","TSLA",
     # Financials
-    "JPM","BAC","GS","MS","V","MA","AXP",
+    "JPM","BAC","GS","V","MA",
     # Healthcare
-    "JNJ","LLY","ABBV","PFE","MRK","UNH","ISRG",
+    "JNJ","LLY","PFE","UNH",
     # Consumer
-    "WMT","COST","HD","MCD","KO","PEP","NKE",
-    # Tech hardware/semis
-    "INTC","AMD","AVGO","QCOM","TXN",
-    # Software/Cloud
-    "CRM","ORCL","ADBE","SAP","NOW","NFLX","UBER",
-    # Energy
-    "XOM","CVX",
-    # Industrial
-    "CAT","GE","HON","BA","DE",
+    "WMT","COST","MCD","KO","NKE",
+    # Tech/Semis/Cloud
+    "AMD","AVGO","QCOM","NFLX","CRM","ORCL",
     # Argentina / LATAM
-    "MELI","NU","GGAL","BMA","PAM","YPF","LOMA","CEPU",
+    "MELI","NU","GGAL","YPF",
 ]
 
 def _fetch_calendario_one(ticker: str, now: pd.Timestamp) -> Optional[dict]:
@@ -868,7 +853,7 @@ def calendario_mercado():
     now = pd.Timestamp.now(tz='UTC')
     cutoff = now + pd.Timedelta(days=60)  # Solo próximos 60 días
     eventos = []
-    with ThreadPoolExecutor(max_workers=12) as executor:
+    with ThreadPoolExecutor(max_workers=6) as executor:
         futures = {executor.submit(_fetch_calendario_one, t, now): t for t in _EARNINGS_WATCHLIST}
         for future in as_completed(futures, timeout=45):
             try:

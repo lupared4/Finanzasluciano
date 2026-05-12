@@ -2574,10 +2574,11 @@ async function precargarLogos() {
 async function arrancar() {
     await cargarDatos();
     precargarLogos();
-    cargarCalendarioMercado();   // tab por defecto: Mercado
-    cargarMercado();
-    cargarTopMovers();
-    cargarTendenciasIA();
+    // Escalonamos las llamadas pesadas para no saturar Render free-tier
+    cargarMercado();                                    // inmediato (4 tickers, rápido)
+    setTimeout(() => cargarTopMovers(),       2000);   // 2s después
+    setTimeout(() => cargarTendenciasIA(),    4500);   // 4.5s después
+    setTimeout(() => cargarCalendarioMercado(), 7000); // 7s después (el más pesado)
 }
 
 arrancar();
