@@ -782,6 +782,109 @@ def calendario_earnings(tickers: str = Query(default="")):
     return sorted(eventos, key=lambda x: x['fecha'])
 
 
+# ── Calendario de Earnings del Mercado (lista curada, no portafolio) ──────────
+_EARNINGS_WATCHLIST = [
+    # Mega caps tech
+    "AAPL","MSFT","GOOGL","AMZN","META","NVDA","TSLA",
+    # Financials
+    "JPM","BAC","GS","MS","V","MA","AXP",
+    # Healthcare
+    "JNJ","LLY","ABBV","PFE","MRK","UNH","ISRG",
+    # Consumer
+    "WMT","COST","HD","MCD","KO","PEP","NKE",
+    # Tech hardware/semis
+    "INTC","AMD","AVGO","QCOM","TXN",
+    # Software/Cloud
+    "CRM","ORCL","ADBE","SAP","NOW","NFLX","UBER",
+    # Energy
+    "XOM","CVX",
+    # Industrial
+    "CAT","GE","HON","BA","DE",
+    # Argentina / LATAM
+    "MELI","NU","GGAL","BMA","PAM","YPF","LOMA","CEPU",
+]
+
+def _fetch_calendario_one(ticker: str, now: pd.Timestamp) -> dict | None:
+    """Busca la próxima fecha de earnings para un ticker. Retorna dict o None."""
+    try:
+        tk = yft(ticker)
+        # Intento 1: tk.calendar
+        try:
+            cal = tk.calendar
+            if cal and isinstance(cal, dict):
+                fechas = cal.get('Earnings Date', [])
+                if not isinstance(fechas, list):
+                    fechas = [fechas]
+                for f in fechas:
+                    if hasattr(f, 'strftime'):
+                        ts = pd.Timestamp(f)
+                        if ts.tzinfo is None:
+                            ts = ts.tz_localize('UTC')
+                        if ts >= now:
+                            return {
+                                "ticker":           ticker,
+                                "fecha":            f.strftime('%Y-%m-%d'),
+                                "eps_estimado":     _safe_num(cal.get('Earnings Average')),
+                                "revenue_estimado": _safe_int(cal.get('Revenue Average')),
+                            }
+        except Exception:
+            pass
+        # Intento 2: earnings_dates
+        try:
+            ed = tk.earnings_dates
+            if ed is not None and not ed.empty:
+                future = ed[ed.index >= now]
+                if not future.empty:
+                    fecha_str = future.index[0].strftime('%Y-%m-%d')
+                    eps_col = [c for c in future.columns if 'Estimate' in str(c) and 'EPS' in str(c)]
+                    eps_val = None
+                    if eps_col:
+                        v = future[eps_col[0]].iloc[0]
+                        try: eps_val = round(float(v), 4) if v == v else None
+                        except: pass
+                    return {"ticker": ticker, "fecha": fecha_str, "eps_estimado": eps_val, "revenue_estimado": None}
+        except Exception:
+            pass
+    except Exception:
+        pass
+    return None
+
+def _safe_num(v):
+    try: return round(float(v), 4) if v is not None and v == v else None
+    except: return None
+
+def _safe_int(v):
+    try: return int(v) if v is not None and v == v else None
+    except: return None
+
+@app.get("/calendario-mercado")
+def calendario_mercado():
+    """Próximos earnings de una lista curada de ~60 empresas del mercado."""
+    cached = _cache_get(_endpoint_cache, "calendario_mercado", 21600)  # 6h cache
+    if cached is not None:
+        return cached
+    now = pd.Timestamp.now(tz='UTC')
+    cutoff = now + pd.Timedelta(days=60)  # Solo próximos 60 días
+    eventos = []
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    with ThreadPoolExecutor(max_workers=12) as executor:
+        futures = {executor.submit(_fetch_calendario_one, t, now): t for t in _EARNINGS_WATCHLIST}
+        for future in as_completed(futures, timeout=45):
+            try:
+                result = future.result()
+                if result:
+                    ts = pd.Timestamp(result["fecha"])
+                    if ts.tzinfo is None:
+                        ts = ts.tz_localize('UTC')
+                    if ts <= cutoff:
+                        eventos.append(result)
+            except Exception:
+                pass
+    eventos = sorted(eventos, key=lambda x: x['fecha'])
+    _cache_set(_endpoint_cache, "calendario_mercado", eventos)
+    return eventos
+
+
 # ── Reporte Detallado de Earnings ─────────────────────────────────────────────
 @app.get("/earnings/{ticker}")
 def earnings_report(ticker: str):

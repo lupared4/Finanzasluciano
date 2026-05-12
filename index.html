@@ -936,15 +936,28 @@
 
     <!-- ── ROW 3: Calendario de Earnings ─────────────────────────────────── -->
     <div class="mt-6 bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
-        <div class="flex justify-between items-center mb-4">
+        <div class="flex flex-col sm:flex-row justify-between items-start sm:items-center gap-3 mb-4">
             <div>
-                <h3 class="text-blue-300 font-bold text-sm uppercase tracking-widest">📅 Calendario de Eventos</h3>
-                <p class="text-gray-500 text-[10px] mt-1">Próximos reportes de resultados de tus activos · Hacé clic para ver el informe completo</p>
+                <h3 class="text-blue-300 font-bold text-sm uppercase tracking-widest">📅 Calendario de Earnings</h3>
+                <p id="cal-subtitulo" class="text-gray-500 text-[10px] mt-1">Próximos reportes del mercado · Hacé clic para ver el informe completo</p>
             </div>
-            <button onclick="cargarCalendario()"
-                    class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded font-bold transition-all">
-                ↻ Actualizar
-            </button>
+            <div class="flex items-center gap-2">
+                <!-- Tabs -->
+                <div class="flex bg-gray-700 rounded-lg p-0.5 text-[11px] font-bold">
+                    <button id="cal-tab-mercado" onclick="switchCalTab('mercado')"
+                            class="px-3 py-1 rounded-md bg-blue-600 text-white transition-all">
+                        🌍 Mercado
+                    </button>
+                    <button id="cal-tab-cartera" onclick="switchCalTab('cartera')"
+                            class="px-3 py-1 rounded-md text-gray-400 transition-all">
+                        💼 Mi Cartera
+                    </button>
+                </div>
+                <button id="cal-btn-actualizar" onclick="actualizarCalendarioActivo()"
+                        class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1 rounded font-bold transition-all">
+                    ↻
+                </button>
+            </div>
         </div>
         <div id="contenedor-calendario">
             <p class="text-gray-500 italic text-center py-6 text-sm">Cargando calendario...</p>
@@ -1295,16 +1308,19 @@ async function seleccionarActivo(ticker) {
         '<p class="text-gray-500 text-center pt-24 text-sm animate-pulse">Cargando...</p>';
 
     try {
-        const [velas, noticias, analisis, mc, ia, indicadores, orderbook] = await Promise.all([
-            fetch(`https://finanzasluciano.onrender.com/velas/${ticker}?period=${periodoActivo}`).then(r => r.json()),
-            fetch(`https://finanzasluciano.onrender.com/noticias/${ticker}`).then(r => r.json()),
-            fetch(`https://finanzasluciano.onrender.com/analisis/${ticker}`).then(r => r.json()),
-            fetch(`https://finanzasluciano.onrender.com/montecarlo/${ticker}?dias=${diasMC}`).then(r => r.json()),
-            fetch(`https://finanzasluciano.onrender.com/ia/${ticker}`).then(r => r.json()),
-            fetch(`https://finanzasluciano.onrender.com/indicadores/${ticker}`).then(r => r.json()),
-            fetch(`https://finanzasluciano.onrender.com/orderbook/${ticker}`).then(r => r.json()),
-        ]);
+        // ── FASE 1: Cargar velas primero para mostrar el gráfico de inmediato ───
+        const velas = await fetch(`https://finanzasluciano.onrender.com/velas/${ticker}?period=${periodoActivo}`).then(r => r.json());
         renderGrafico(velas);
+
+        // ── FASE 2: Resto de paneles en paralelo (no bloquean el gráfico) ────
+        const [noticias, analisis, mc, ia, indicadores, orderbook] = await Promise.all([
+            fetch(`https://finanzasluciano.onrender.com/noticias/${ticker}`).then(r => r.json()).catch(() => []),
+            fetch(`https://finanzasluciano.onrender.com/analisis/${ticker}`).then(r => r.json()).catch(() => ({})),
+            fetch(`https://finanzasluciano.onrender.com/montecarlo/${ticker}?dias=${diasMC}`).then(r => r.json()).catch(() => ({})),
+            fetch(`https://finanzasluciano.onrender.com/ia/${ticker}`).then(r => r.json()).catch(() => ({})),
+            fetch(`https://finanzasluciano.onrender.com/indicadores/${ticker}`).then(r => r.json()).catch(() => ({})),
+            fetch(`https://finanzasluciano.onrender.com/orderbook/${ticker}`).then(r => r.json()).catch(() => ({})),
+        ]);
         renderNoticias(noticias);
         renderAnalisis(analisis);
         renderMonteCarlo(mc);
@@ -1999,11 +2015,88 @@ async function abrirStockModal(ticker) {
 // ═══════════════════════════════════════════════════════════════════════════
 // CALENDARIO DE EARNINGS
 // ═══════════════════════════════════════════════════════════════════════════
+let _calTabActivo = 'mercado';
+
+function switchCalTab(tab) {
+    _calTabActivo = tab;
+    const tabMercado = document.getElementById('cal-tab-mercado');
+    const tabCartera = document.getElementById('cal-tab-cartera');
+    if (tab === 'mercado') {
+        tabMercado.classList.add('bg-blue-600','text-white');
+        tabMercado.classList.remove('text-gray-400');
+        tabCartera.classList.remove('bg-blue-600','text-white');
+        tabCartera.classList.add('text-gray-400');
+        document.getElementById('cal-subtitulo').textContent = 'Próximos reportes del mercado · Hacé clic para ver el informe completo';
+        cargarCalendarioMercado();
+    } else {
+        tabCartera.classList.add('bg-blue-600','text-white');
+        tabCartera.classList.remove('text-gray-400');
+        tabMercado.classList.remove('bg-blue-600','text-white');
+        tabMercado.classList.add('text-gray-400');
+        document.getElementById('cal-subtitulo').textContent = 'Próximos reportes de tus activos · Hacé clic para ver el informe completo';
+        cargarCalendario();
+    }
+}
+
+function actualizarCalendarioActivo() {
+    if (_calTabActivo === 'mercado') cargarCalendarioMercado();
+    else cargarCalendario();
+}
+
+function _renderEventosCalendario(eventos) {
+    return `<div class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3">
+        ${eventos.map(ev => {
+            const fecha  = new Date(ev.fecha + 'T12:00:00');
+            const diaNum = fecha.toLocaleDateString('es-AR', { day:'numeric' });
+            const mes    = fecha.toLocaleDateString('es-AR', { month:'short' }).toUpperCase();
+            const diaSem = fecha.toLocaleDateString('es-AR', { weekday:'short' }).toUpperCase();
+            const epsStr = ev.eps_estimado != null
+                ? `EPS est. <span class="font-bold text-white">$${ev.eps_estimado}</span>`
+                : '<span class="text-gray-600">Sin datos EPS</span>';
+            const revStr = ev.revenue_estimado != null
+                ? `<p class="text-[10px] text-gray-500 mt-1">Rev. <span class="text-yellow-300 font-bold">${fmtCap(ev.revenue_estimado)}</span></p>`
+                : '';
+            // Color según días restantes
+            const hoy = new Date(); hoy.setHours(0,0,0,0);
+            const dias = Math.round((fecha - hoy) / 86400000);
+            const badgeColor = dias <= 3 ? 'bg-orange-500' : dias <= 7 ? 'bg-yellow-600' : 'bg-blue-600';
+            return `
+            <div onclick="abrirEarningsModal('${ev.ticker}')"
+                 class="bg-gray-900/60 border border-gray-700 rounded-xl p-3 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all group">
+                <div class="flex items-start justify-between mb-2">
+                    <span class="${badgeColor} text-white text-[10px] font-bold px-2 py-0.5 rounded">${ev.ticker}</span>
+                    <div class="text-right leading-tight">
+                        <p class="text-white font-bold text-base">${diaNum}</p>
+                        <p class="text-gray-400 text-[9px]">${diaSem} ${mes}</p>
+                    </div>
+                </div>
+                ${dias <= 7 ? `<p class="text-orange-400 text-[9px] font-bold mb-1">${dias === 0 ? '¡Hoy!' : dias === 1 ? 'Mañana' : `En ${dias} días`}</p>` : ''}
+                <p class="text-[10px] text-gray-400">${epsStr}</p>
+                ${revStr}
+                <p class="text-[9px] text-blue-400 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">Ver informe →</p>
+            </div>`;
+        }).join('')}
+    </div>`;
+}
+
+async function cargarCalendarioMercado() {
+    const cont = document.getElementById('contenedor-calendario');
+    cont.innerHTML = '<p class="text-gray-500 text-center py-6 text-sm animate-pulse">Consultando calendario del mercado... (puede tardar ~15s la primera vez)</p>';
+    try {
+        const eventos = await fetch('https://finanzasluciano.onrender.com/calendario-mercado').then(r => r.json());
+        if (!eventos || !eventos.length) {
+            cont.innerHTML = '<p class="text-gray-500 italic text-center py-6">No hay earnings próximos disponibles.</p>';
+            return;
+        }
+        cont.innerHTML = _renderEventosCalendario(eventos);
+    } catch(e) {
+        cont.innerHTML = '<p class="text-red-400 italic text-center py-6">Error al cargar el calendario del mercado.</p>';
+    }
+}
 async function cargarCalendario() {
     const cont = document.getElementById('contenedor-calendario');
     cont.innerHTML = '<p class="text-gray-500 text-center py-6 text-sm animate-pulse">Consultando fechas de earnings...</p>';
     try {
-        // Obtener tickers del localStorage
         const ops = getOperaciones();
         const porTicker = {};
         for (const op of ops) {
@@ -2014,7 +2107,7 @@ async function cargarCalendario() {
         const tickers = Object.keys(porTicker).filter(t => porTicker[t].c - porTicker[t].v > 0);
 
         if (tickers.length === 0) {
-            cont.innerHTML = '<p class="text-gray-500 italic text-center py-6">Agregá activos a tu cartera para ver el calendario.</p>';
+            cont.innerHTML = '<p class="text-gray-500 italic text-center py-6">Agregá acciones a tu cartera para ver el calendario.</p>';
             return;
         }
 
@@ -2024,33 +2117,7 @@ async function cargarCalendario() {
             cont.innerHTML = '<p class="text-gray-500 italic text-center py-6">No se encontraron earnings próximos para los activos en cartera.</p>';
             return;
         }
-        cont.innerHTML = `<div class="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3">
-            ${eventos.map(ev => {
-                const fecha   = new Date(ev.fecha + 'T12:00:00');
-                const diaNum  = fecha.toLocaleDateString('es-AR', { day:'numeric' });
-                const mes     = fecha.toLocaleDateString('es-AR', { month:'short' }).toUpperCase();
-                const epsStr  = ev.eps_estimado != null ? `EPS est. <span class="font-bold text-white">$${ev.eps_estimado}</span>` : 'Sin datos EPS';
-                const revStr  = ev.revenue_estimado != null
-                    ? `Rev. est. <span class="font-bold text-yellow-300">${fmtCap(ev.revenue_estimado)}</span>`
-                    : '';
-                return `
-                <div onclick="abrirEarningsModal('${ev.ticker}')"
-                     class="bg-gray-900/60 border border-gray-700 rounded-xl p-4 hover:border-blue-500 hover:bg-gray-700/40 cursor-pointer transition-all group">
-                    <div class="flex items-start justify-between mb-2">
-                        <span class="bg-blue-600 text-white text-xs font-bold px-2 py-0.5 rounded">${ev.ticker}</span>
-                        <div class="text-right">
-                            <p class="text-white font-bold text-lg leading-none">${diaNum}</p>
-                            <p class="text-gray-400 text-[10px]">${mes}</p>
-                        </div>
-                    </div>
-                    <p class="text-[10px] text-gray-400 mt-2">${epsStr}</p>
-                    ${revStr ? `<p class="text-[10px] text-gray-500 mt-1">${revStr}</p>` : ''}
-                    <p class="text-[9px] text-blue-400 mt-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                        Ver informe completo →
-                    </p>
-                </div>`;
-            }).join('')}
-        </div>`;
+        cont.innerHTML = _renderEventosCalendario(eventos);
     } catch(e) {
         cont.innerHTML = '<p class="text-red-400 italic text-center py-6">Error al cargar el calendario.</p>';
     }
@@ -2507,7 +2574,7 @@ async function precargarLogos() {
 async function arrancar() {
     await cargarDatos();
     precargarLogos();
-    cargarCalendario();
+    cargarCalendarioMercado();   // tab por defecto: Mercado
     cargarMercado();
     cargarTopMovers();
     cargarTendenciasIA();
