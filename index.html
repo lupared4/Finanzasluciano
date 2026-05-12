@@ -968,26 +968,27 @@
     <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
 
         <!-- Top Ganadoras / Perdedoras -->
-        <div class="lg:col-span-1 bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
-            <div class="flex justify-between items-center mb-4">
+        <div class="lg:col-span-1 bg-gray-800 p-4 rounded-xl border border-gray-700 shadow-lg">
+            <div class="flex justify-between items-center mb-3">
                 <h3 class="text-blue-300 font-bold text-sm uppercase tracking-widest">📊 Top Movers Hoy</h3>
                 <button onclick="cargarTopMovers()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded font-bold">↻</button>
             </div>
-            <div id="panel-top-movers">
+            <!-- En mobile: scroll horizontal en 2 cols (ganadoras | perdedoras) -->
+            <div id="panel-top-movers" class="overflow-x-auto">
                 <p class="text-gray-500 italic text-center py-4 text-sm">Cargando...</p>
             </div>
         </div>
 
         <!-- IA: Tendencias de Crecimiento -->
-        <div class="lg:col-span-2 bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
-            <div class="flex justify-between items-center mb-4">
+        <div class="lg:col-span-2 bg-gray-800 p-4 rounded-xl border border-gray-700 shadow-lg">
+            <div class="flex justify-between items-center mb-3">
                 <div>
                     <h3 class="text-purple-300 font-bold text-sm uppercase tracking-widest">🤖 IA — Acciones en Tendencia</h3>
-                    <p class="text-gray-500 text-[10px] mt-1">Análisis de momentum, RSI y posición 52 semanas · Actualizado cada hora</p>
+                    <p class="text-gray-500 text-[10px] mt-1">Momentum · RSI · 52 semanas · Actualizado cada hora</p>
                 </div>
                 <button onclick="cargarTendenciasIA()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded font-bold">↻</button>
             </div>
-            <div id="panel-tendencias-ia">
+            <div id="panel-tendencias-ia" class="overflow-x-auto">
                 <p class="text-gray-500 italic text-center py-4 text-sm">Analizando mercado...</p>
             </div>
         </div>
@@ -1841,26 +1842,25 @@ async function cargarTopMovers() {
             return;
         }
         const rowHtml = (arr, colorClass) => arr.map(a => `
-            <div class="flex justify-between items-center py-1 cursor-pointer hover:bg-gray-700/40 px-1 rounded transition-all"
+            <div class="flex justify-between items-center py-1.5 cursor-pointer hover:bg-gray-700/40 px-1 rounded transition-all"
                  onclick="abrirStockModal('${a.ticker}')">
-                <div class="flex items-center gap-2">
+                <div class="flex items-center gap-1.5 min-w-0">
                     ${logoImgHtml(a.ticker)}
-                    <span class="text-white text-xs font-bold">${a.ticker}</span>
+                    <span class="text-white text-xs font-bold truncate">${a.ticker}</span>
                 </div>
-                <div class="text-right">
-                    <p class="text-white text-xs">$${a.precio.toFixed(2)}</p>
-                    <p class="${colorClass} text-[10px] font-bold">${a.cambio_dia >= 0 ? '+' : ''}${a.cambio_dia.toFixed(2)}%</p>
-                </div>
+                <span class="${colorClass} text-xs font-bold shrink-0 ml-1">${a.cambio_dia >= 0 ? '+' : ''}${a.cambio_dia.toFixed(1)}%</span>
             </div>`).join('');
 
         panel.innerHTML = `
-            <div class="mb-3">
-                <p class="text-green-400 text-[10px] uppercase font-bold mb-1">▲ Top Ganadoras</p>
-                ${rowHtml(ganadoras, 'text-green-400')}
-            </div>
-            <div class="mt-3 border-t border-gray-700 pt-3">
-                <p class="text-red-400 text-[10px] uppercase font-bold mb-1">▼ Top Perdedoras</p>
-                ${rowHtml(perdedoras, 'text-red-400')}
+            <div class="grid grid-cols-2 gap-3">
+                <div>
+                    <p class="text-green-400 text-[10px] uppercase font-bold mb-1.5 flex items-center gap-1">▲ Ganadoras</p>
+                    ${rowHtml(ganadoras, 'text-green-400')}
+                </div>
+                <div class="border-l border-gray-700 pl-3">
+                    <p class="text-red-400 text-[10px] uppercase font-bold mb-1.5 flex items-center gap-1">▼ Perdedoras</p>
+                    ${rowHtml(perdedoras, 'text-red-400')}
+                </div>
             </div>`;
     } catch(e) {
         panel.innerHTML = '<p class="text-red-400 text-sm text-center py-4">Error al cargar movers</p>';

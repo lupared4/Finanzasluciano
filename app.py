@@ -10,6 +10,8 @@ from pydantic import BaseModel
 import time
 import requests
 import datetime
+from typing import Optional
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 try:
     from pandas_datareader import data as pdr
@@ -804,7 +806,7 @@ _EARNINGS_WATCHLIST = [
     "MELI","NU","GGAL","BMA","PAM","YPF","LOMA","CEPU",
 ]
 
-def _fetch_calendario_one(ticker: str, now: pd.Timestamp) -> dict | None:
+def _fetch_calendario_one(ticker: str, now: pd.Timestamp) -> Optional[dict]:
     """Busca la próxima fecha de earnings para un ticker. Retorna dict o None."""
     try:
         tk = yft(ticker)
@@ -866,7 +868,6 @@ def calendario_mercado():
     now = pd.Timestamp.now(tz='UTC')
     cutoff = now + pd.Timedelta(days=60)  # Solo próximos 60 días
     eventos = []
-    from concurrent.futures import ThreadPoolExecutor, as_completed
     with ThreadPoolExecutor(max_workers=12) as executor:
         futures = {executor.submit(_fetch_calendario_one, t, now): t for t in _EARNINGS_WATCHLIST}
         for future in as_completed(futures, timeout=45):
