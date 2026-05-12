@@ -43,6 +43,32 @@ _yf_session.headers.update({
 def yft(ticker: str) -> yf.Ticker:
     return yf.Ticker(ticker)
 
+# ── Símbolos crypto conocidos → Yahoo Finance usa "{SYM}-USD" ────────────────
+CRYPTO_SYMBOLS = {
+    'BTC','ETH','SOL','BNB','ADA','XRP','DOGE','DOT','LINK','MATIC',
+    'AVAX','UNI','LTC','BCH','ATOM','NEAR','APT','OP','ARB','USDT',
+    'USDC','SHIB','TRX','TON','ICP','FIL','HBAR','VET','ALGO','XLM',
+    'SUI','SEI','INJ','JUP','WIF','BONK','PEPE','FLOKI','FET','RNDR',
+}
+# CoinGecko IDs para datos enriquecidos
+COINGECKO_IDS = {
+    'BTC':'bitcoin','ETH':'ethereum','SOL':'solana','BNB':'binancecoin',
+    'ADA':'cardano','XRP':'ripple','DOGE':'dogecoin','DOT':'polkadot',
+    'LINK':'chainlink','MATIC':'matic-network','AVAX':'avalanche-2',
+    'UNI':'uniswap','LTC':'litecoin','BCH':'bitcoin-cash','ATOM':'cosmos',
+    'NEAR':'near','APT':'aptos','OP':'optimism','ARB':'arbitrum',
+    'SHIB':'shiba-inu','TRX':'tron','TON':'the-open-network','ICP':'internet-computer',
+    'FIL':'filecoin','HBAR':'hedera-hashgraph','VET':'vechain','ALGO':'algorand',
+    'XLM':'stellar','SUI':'sui','INJ':'injective-protocol','FET':'fetch-ai',
+    'RNDR':'render-token',
+}
+COINGECKO_BASE = "https://api.coingecko.com/api/v3"
+
+def yf_sym(ticker: str) -> str:
+    """Convierte símbolo crypto a formato Yahoo Finance (agrega -USD si es crypto)."""
+    sym = ticker.upper().replace('-USD','').replace('/USD','')
+    return f"{sym}-USD" if sym in CRYPTO_SYMBOLS else sym
+
 class TransaccionSchema(BaseModel):
     ticker: str
     cantidad: float
@@ -73,12 +99,13 @@ def _cache_set(store: dict, key: str, value):
 
 def get_precio_actual(ticker: str) -> float:
     """Obtiene el precio con cache y múltiples fallbacks."""
-    cached = _cache_get(_price_cache, ticker, _CACHE_TTL)
+    sym = yf_sym(ticker)          # BTC → BTC-USD, AAPL → AAPL
+    cached = _cache_get(_price_cache, sym, _CACHE_TTL)
     if cached is not None:
         return cached
 
     precio = 0.0
-    tk = yft(ticker)
+    tk = yft(sym)
 
     # Fallback 1: fast_info (más ligero, menos rate-limit)
     try:
@@ -93,7 +120,7 @@ def get_precio_actual(ticker: str) -> float:
     # Fallback 2: yf.download (endpoint diferente)
     try:
         data = yf.download(
-            ticker, period="2d", auto_adjust=True,
+            sym, period="2d", auto_adjust=True,
             progress=False
         )
         if isinstance(data.columns, pd.MultiIndex):
@@ -105,8 +132,7 @@ def get_precio_actual(ticker: str) -> float:
     except Exception:
         pass
 
-    # Fallback 3: devolver 0 sin crashear
-    _cache_set(_price_cache, ticker, 0.0)
+    _cache_set(_price_cache, sym, 0.0)
     return 0.0
 
 
@@ -170,7 +196,8 @@ def obtener_resumen():
 @app.get("/velas/{ticker}")
 def obtener_velas(ticker: str, period: str = Query("1mo")):
     try:
-        data = get_history(ticker, period)
+        sym  = yf_sym(ticker)          # BTC → BTC-USD
+        data = get_history(sym, period)
         if data.empty:
             return []
         result = []
@@ -688,6 +715,10 @@ def calendario_earnings(tickers: str = Query(default="")):
         return v
 
     for ticker in ticker_list:
+        # ── Crypto no tiene earnings → saltar ────────────────────────────────
+        sym_base = ticker.upper().replace('-USD','').replace('/USD','')
+        if sym_base in CRYPTO_SYMBOLS:
+            continue
         try:
             fecha_str = None
             eps_est   = None
@@ -860,6 +891,73 @@ def earnings_report(ticker: str):
         print(f"Error earnings {ticker}: {e}")
         return {"error": str(e)}
 
+
+
+# ── Crypto Info via CoinGecko (gratis, sin API key) ──────────────────────────
+@app.get("/crypto-info/{symbol}")
+def crypto_info_endpoint(symbol: str):
+    sym = symbol.upper().replace('-USD','').replace('/USD','')
+    cached = _cache_get(_endpoint_cache, f"crypto_{sym}", 300)
+    if cached is not None:
+        return cached
+
+    # Resolver ID de CoinGecko
+    cg_id = COINGECKO_IDS.get(sym)
+    if not cg_id:
+        try:
+            r = requests.get(
+                f"{COINGECKO_BASE}/search?query={sym}",
+                headers={'User-Agent':'Mozilla/5.0'},
+                timeout=10
+            )
+            coins = r.json().get('coins', [])
+            if coins:
+                cg_id = coins[0]['id']
+        except Exception:
+            pass
+    if not cg_id:
+        return {"error": f"Crypto '{sym}' no encontrada"}
+
+    try:
+        r = requests.get(
+            f"{COINGECKO_BASE}/coins/{cg_id}"
+            "?localization=false&tickers=false&community_data=false&developer_data=false",
+            headers={'User-Agent':'Mozilla/5.0'},
+            timeout=15
+        )
+        d = r.json()
+        m = d.get('market_data', {})
+        def fg(field, sub='usd'):
+            v = m.get(field, {})
+            return v.get(sub) if isinstance(v, dict) else v
+
+        result = {
+            "nombre":             d.get('name', sym),
+            "simbolo":            (d.get('symbol') or sym).upper(),
+            "logo_url":           d.get('image', {}).get('large'),
+            "rank":               d.get('market_cap_rank'),
+            "precio_usd":         fg('current_price'),
+            "market_cap":         fg('market_cap'),
+            "volume_24h":         fg('total_volume'),
+            "cambio_1h":          round(m.get('price_change_percentage_1h_in_currency', {}).get('usd') or 0, 2),
+            "cambio_24h":         round(m.get('price_change_percentage_24h') or 0, 2),
+            "cambio_7d":          round(m.get('price_change_percentage_7d') or 0, 2),
+            "cambio_30d":         round(m.get('price_change_percentage_30d') or 0, 2),
+            "high_24h":           fg('high_24h'),
+            "low_24h":            fg('low_24h'),
+            "ath":                fg('ath'),
+            "ath_date":           (fg('ath_date') or '')[:10],
+            "circulating_supply": m.get('circulating_supply'),
+            "total_supply":       m.get('total_supply'),
+            "max_supply":         m.get('max_supply'),
+            "descripcion":        (d.get('description', {}).get('en') or '')[:400],
+            "es_crypto":          True,
+        }
+        _cache_set(_endpoint_cache, f"crypto_{sym}", result)
+        return result
+    except Exception as e:
+        print(f"Error crypto-info {sym}: {e}")
+        return {"error": str(e)}
 
 
 # ── Indicadores Financieros Fundamentales ────────────────────────────────────

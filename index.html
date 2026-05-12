@@ -164,6 +164,81 @@
 </div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
+     MODAL — DETALLE CRYPTO
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="modal-crypto" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+  <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto">
+    <div class="flex justify-between items-center p-5 border-b border-gray-700 sticky top-0 bg-gray-800 z-10">
+      <div class="flex items-center gap-3">
+        <img id="cg-logo" src="" alt="" class="w-9 h-9 rounded-full hidden">
+        <div>
+          <h2 id="cg-nombre" class="text-white font-bold text-lg">—</h2>
+          <div class="flex items-center gap-2 mt-0.5">
+            <span id="cg-simbolo" class="bg-orange-500/20 text-orange-300 text-xs font-bold px-2 py-0.5 rounded">—</span>
+            <span id="cg-rank" class="text-gray-500 text-xs">#—</span>
+          </div>
+        </div>
+      </div>
+      <button onclick="cerrarModal('modal-crypto')" class="text-gray-400 hover:text-white text-2xl font-bold leading-none">&times;</button>
+    </div>
+    <div class="p-5 space-y-4">
+      <!-- Precio + cambios -->
+      <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+        <div class="bg-gray-900/60 rounded-xl p-3 col-span-2 sm:col-span-1 border border-gray-700">
+          <p class="text-gray-500 text-[10px] uppercase mb-1">Precio USD</p>
+          <p id="cg-precio" class="text-white font-mono font-bold text-xl">—</p>
+        </div>
+        <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
+          <p class="text-gray-500 text-[10px] uppercase mb-1">24h</p>
+          <p id="cg-24h" class="font-mono font-bold text-lg">—</p>
+        </div>
+        <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
+          <p class="text-gray-500 text-[10px] uppercase mb-1">7 días</p>
+          <p id="cg-7d" class="font-mono font-bold text-lg">—</p>
+        </div>
+        <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
+          <p class="text-gray-500 text-[10px] uppercase mb-1">30 días</p>
+          <p id="cg-30d" class="font-mono font-bold text-lg">—</p>
+        </div>
+      </div>
+      <!-- Market data -->
+      <div class="grid grid-cols-2 sm:grid-cols-3 gap-3">
+        <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
+          <p class="text-gray-500 text-[10px] uppercase mb-1">Market Cap</p>
+          <p id="cg-mcap" class="text-white font-mono font-bold">—</p>
+        </div>
+        <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
+          <p class="text-gray-500 text-[10px] uppercase mb-1">Vol 24h</p>
+          <p id="cg-vol" class="text-white font-mono font-bold">—</p>
+        </div>
+        <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
+          <p class="text-gray-500 text-[10px] uppercase mb-1">ATH</p>
+          <p id="cg-ath" class="text-white font-mono font-bold">—</p>
+          <p id="cg-ath-date" class="text-gray-600 text-[9px] mt-0.5">—</p>
+        </div>
+        <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
+          <p class="text-gray-500 text-[10px] uppercase mb-1">Min 24h</p>
+          <p id="cg-low24" class="text-white font-mono">—</p>
+        </div>
+        <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
+          <p class="text-gray-500 text-[10px] uppercase mb-1">Max 24h</p>
+          <p id="cg-high24" class="text-white font-mono">—</p>
+        </div>
+        <div class="bg-gray-900/60 rounded-xl p-3 border border-gray-700">
+          <p class="text-gray-500 text-[10px] uppercase mb-1">Circ. Supply</p>
+          <p id="cg-supply" class="text-white font-mono">—</p>
+        </div>
+      </div>
+      <!-- Descripción -->
+      <div id="cg-desc-cont" class="bg-gray-900/40 rounded-xl p-4 border border-gray-700/50 hidden">
+        <p class="text-gray-500 text-[10px] uppercase mb-2">Sobre el activo</p>
+        <p id="cg-descripcion" class="text-gray-300 text-xs leading-relaxed"></p>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
      MODAL — PERFIL INVERSOR
 ════════════════════════════════════════════════════════════════════════════ -->
 <div id="modal-perfil" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
@@ -376,14 +451,25 @@
         <div class="lg:col-span-1 space-y-6">
 
             <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
-                <h3 class="text-blue-300 font-bold mb-4 text-sm uppercase">Nueva Operaci&#xF3;n</h3>
+                <h3 class="text-blue-300 font-bold mb-3 text-sm uppercase">Nueva Operaci&#xF3;n</h3>
+                <!-- Toggle Acción / Crypto -->
+                <div class="flex bg-gray-700 rounded-lg p-1 mb-3 text-xs font-bold">
+                    <button id="tipo-accion" onclick="setTipoActivo('stock')"
+                            class="flex-1 py-1.5 rounded-md bg-blue-600 text-white transition-all">
+                        📈 Acción / ETF
+                    </button>
+                    <button id="tipo-crypto" onclick="setTipoActivo('crypto')"
+                            class="flex-1 py-1.5 rounded-md text-gray-400 hover:text-white transition-all">
+                        ₿ Crypto
+                    </button>
+                </div>
                 <input type="text" id="input-ticker" placeholder="Ticker (ej: AAPL)"
                        class="w-full bg-gray-700 rounded-lg p-2 mb-3 uppercase text-white focus:ring-2 focus:ring-blue-500 outline-none"
                        onkeydown="if(event.key==='Enter') document.getElementById('input-cantidad').focus()">
                 <input type="number" id="input-cantidad" placeholder="Cantidad"
                        class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white outline-none"
                        onkeydown="if(event.key==='Enter') document.getElementById('input-precio').focus()">
-                <input type="number" id="input-precio" placeholder="Precio Compra"
+                <input type="number" id="input-precio" placeholder="Precio Compra (USD)"
                        class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white outline-none"
                        onkeydown="if(event.key==='Enter') enviarCompra()">
                 <button id="btn-registrar" onclick="enviarCompra()"
@@ -1028,6 +1114,7 @@ function renderTabla() {
                     <div class="flex items-center gap-2">
                         ${logoImgHtml(item.ticker)}
                         <span class="font-bold text-blue-400">${item.ticker}</span>
+                        ${esCryptoTicker(item.ticker) ? '<span class="text-[9px] bg-orange-500/20 text-orange-400 px-1 rounded">₿</span>' : ''}
                     </div>
                 </td>
                 <td class="text-gray-300">${item.cantidad}</td>
@@ -1065,6 +1152,13 @@ function renderTabla() {
 // ═══════════════════════════════════════════════════════════════════════════
 async function seleccionarActivo(ticker) {
     tickerActivo = ticker;
+
+    // ── Crypto: abrir modal dedicado en lugar del panel de acciones ──────────
+    if (esCryptoTicker(ticker)) {
+        abrirCryptoModal(ticker);
+        return;
+    }
+
     document.getElementById('titulo-grafico').innerText    = `Evolución: ${ticker}`;
     document.getElementById('titulo-noticias').innerText   = `Noticias: ${ticker}`;
     document.getElementById('titulo-analisis').innerText   = `Análisis Técnico: ${ticker}`;
@@ -1607,6 +1701,79 @@ async function cargarCalendario() {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// HELPER: detectar si un ticker es crypto
+// ═══════════════════════════════════════════════════════════════════════════
+function esCryptoTicker(ticker) {
+    const sym = ticker.toUpperCase().replace('-USD','').replace('/USD','');
+    // Verificar en operaciones guardadas primero (más preciso)
+    const ops = getOperaciones();
+    const op  = ops.find(o => o.ticker === ticker);
+    if (op && op.tipo_activo) return op.tipo_activo === 'crypto';
+    // Fallback: detectar por símbolo conocido
+    return CRYPTO_SYMBOLS.has(sym);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// MODAL — DETALLE CRYPTO (CoinGecko)
+// ═══════════════════════════════════════════════════════════════════════════
+let chartCryptoModal = null;
+async function abrirCryptoModal(ticker) {
+    const sym = ticker.toUpperCase().replace('-USD','').replace('/USD','');
+    document.getElementById('modal-crypto').classList.remove('hidden');
+    document.getElementById('cg-nombre').innerText  = `Cargando ${sym}...`;
+    document.getElementById('cg-simbolo').innerText = sym;
+    document.getElementById('cg-rank').innerText    = '';
+    ['cg-precio','cg-24h','cg-7d','cg-30d','cg-mcap','cg-vol',
+     'cg-ath','cg-ath-date','cg-low24','cg-high24','cg-supply'].forEach(id => {
+        const el = document.getElementById(id);
+        if (el) el.innerText = '—';
+    });
+    try {
+        const d = await fetch(`https://finanzasluciano.onrender.com/crypto-info/${sym}`).then(r => r.json());
+        if (d.error) { document.getElementById('cg-nombre').innerText = 'No encontrado: ' + sym; return; }
+
+        document.getElementById('cg-nombre').innerText  = d.nombre || sym;
+        document.getElementById('cg-simbolo').innerText = d.simbolo || sym;
+        document.getElementById('cg-rank').innerText    = d.rank ? `#${d.rank}` : '';
+
+        const logo = document.getElementById('cg-logo');
+        if (d.logo_url) { logo.src = d.logo_url; logo.classList.remove('hidden'); }
+        else logo.classList.add('hidden');
+
+        document.getElementById('cg-precio').innerText = d.precio_usd != null ? `$${d.precio_usd.toLocaleString('en-US', {maximumFractionDigits: d.precio_usd > 1 ? 2 : 6})}` : '—';
+        document.getElementById('cg-mcap').innerText   = fmtCap(d.market_cap);
+        document.getElementById('cg-vol').innerText    = fmtCap(d.volume_24h);
+        document.getElementById('cg-ath').innerText    = d.ath != null ? `$${d.ath.toLocaleString('en-US', {maximumFractionDigits: 2})}` : '—';
+        document.getElementById('cg-ath-date').innerText = d.ath_date ? `Máx histórico: ${d.ath_date}` : '';
+        document.getElementById('cg-low24').innerText  = d.low_24h  != null ? `$${d.low_24h.toLocaleString('en-US',{maximumFractionDigits:2})}` : '—';
+        document.getElementById('cg-high24').innerText = d.high_24h != null ? `$${d.high_24h.toLocaleString('en-US',{maximumFractionDigits:2})}` : '—';
+
+        const circ = d.circulating_supply;
+        document.getElementById('cg-supply').innerText = circ ? `${(circ/1e6).toFixed(2)}M ${d.simbolo}` : '—';
+
+        // Cambios porcentuales con color
+        [['cg-24h', d.cambio_24h], ['cg-7d', d.cambio_7d], ['cg-30d', d.cambio_30d]].forEach(([id, val]) => {
+            const el = document.getElementById(id);
+            if (!el) return;
+            if (val == null) { el.innerText = '—'; return; }
+            el.innerText   = (val >= 0 ? '+' : '') + val.toFixed(2) + '%';
+            el.className   = 'font-mono font-bold text-lg ' + (val >= 0 ? 'text-green-400' : 'text-red-400');
+        });
+
+        // Descripción
+        if (d.descripcion) {
+            document.getElementById('cg-descripcion').innerText = d.descripcion;
+            document.getElementById('cg-desc-cont').classList.remove('hidden');
+        } else {
+            document.getElementById('cg-desc-cont').classList.add('hidden');
+        }
+    } catch(e) {
+        document.getElementById('cg-nombre').innerText = 'Error al cargar datos';
+        console.error(e);
+    }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // MODAL — REPORTE EARNINGS
 // ═══════════════════════════════════════════════════════════════════════════
 async function abrirEarningsModal(ticker) {
@@ -1732,6 +1899,31 @@ function confirmarVenta() {
 // ═══════════════════════════════════════════════════════════════════════════
 // COMPRA
 // ═══════════════════════════════════════════════════════════════════════════
+const CRYPTO_SYMBOLS = new Set([
+    'BTC','ETH','SOL','BNB','ADA','XRP','DOGE','DOT','LINK','MATIC',
+    'AVAX','UNI','LTC','BCH','ATOM','NEAR','APT','OP','ARB','USDT',
+    'USDC','SHIB','TRX','TON','ICP','FIL','HBAR','VET','ALGO','XLM',
+    'SUI','SEI','INJ','JUP','WIF','BONK','PEPE','FLOKI','FET','RNDR',
+]);
+
+let _tipoActivo = 'stock'; // 'stock' | 'crypto'
+
+function setTipoActivo(tipo) {
+    _tipoActivo = tipo;
+    const btnA = document.getElementById('tipo-accion');
+    const btnC = document.getElementById('tipo-crypto');
+    const inp  = document.getElementById('input-ticker');
+    if (tipo === 'crypto') {
+        btnA.className = 'flex-1 py-1.5 rounded-md text-gray-400 hover:text-white transition-all';
+        btnC.className = 'flex-1 py-1.5 rounded-md bg-orange-600 text-white transition-all';
+        inp.placeholder = 'Símbolo (ej: BTC, ETH, SOL)';
+    } else {
+        btnA.className = 'flex-1 py-1.5 rounded-md bg-blue-600 text-white transition-all';
+        btnC.className = 'flex-1 py-1.5 rounded-md text-gray-400 hover:text-white transition-all';
+        inp.placeholder = 'Ticker (ej: AAPL, MSFT, SPY)';
+    }
+}
+
 const historialSesion = [];
 
 function enviarCompra() {
@@ -1746,9 +1938,12 @@ function enviarCompra() {
         return;
     }
 
+    // Auto-detectar crypto aunque el usuario no cambie el toggle
+    const esCrypto = _tipoActivo === 'crypto' || CRYPTO_SYMBOLS.has(t);
+
     // Guardar en localStorage — instantáneo, sin servidor
     const ops = getOperaciones();
-    ops.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2), ticker: t, tipo: 'Compra', cantidad: parseFloat(c), precio: parseFloat(p), fecha: new Date().toISOString() });
+    ops.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2), ticker: t, tipo: 'Compra', cantidad: parseFloat(c), precio: parseFloat(p), fecha: new Date().toISOString(), tipo_activo: esCrypto ? 'crypto' : 'stock' });
     saveOperaciones(ops);
 
     // Historial rápido
