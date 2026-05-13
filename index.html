@@ -1271,10 +1271,36 @@ async function cargarDatos() {
 // ═══════════════════════════════════════════════════════════════════════════
 // TABLA DE CARTERA
 // ═══════════════════════════════════════════════════════════════════════════
+
+// Genera las URLs de logo en orden de prioridad para un ticker
+function _logoSrcs(ticker) {
+    const t  = ticker.toUpperCase().replace(/\.(BA|TO|L|PA|DE|HK|AX|TW)$/i, '');
+    const tl = t.toLowerCase();
+    const srcs = [];
+    // 1. Cache proveniente del backend (Clearbit real o logo_url de yfinance)
+    if (logoCache[ticker]) srcs.push(logoCache[ticker]);
+    // 2. Financial Modeling Prep — gratuito para imágenes, cubre miles de US stocks
+    srcs.push(`https://financialmodelingprep.com/image-stock/${t}.png`);
+    // 3. Clearbit por dominio inferido (funciona para nombres tipo apple, microsoft, etc.)
+    srcs.push(`https://logo.clearbit.com/${tl}.com`);
+    return [...new Set(srcs)]; // deduplica
+}
+
+// Construye el HTML de imagen con cadena de fallback automática
 function logoImgHtml(ticker, size = '24') {
-    const url = logoCache[ticker];
-    if (url) return `<img src="${url}" class="w-${size === '24' ? '6' : '8'} h-${size === '24' ? '6' : '8'} rounded-full object-cover bg-gray-600" onerror="this.style.display='none'" />`;
-    return `<span class="inline-flex items-center justify-center w-6 h-6 rounded-full bg-blue-800 text-white text-[9px] font-bold">${ticker.substring(0,2)}</span>`;
+    const srcs = _logoSrcs(ticker);
+    const dim  = size === '24' ? 'w-6 h-6' : 'w-8 h-8';
+    const initials = ticker.substring(0, 2).toUpperCase();
+
+    // Construir cadena onerror: intenta cada fuente en orden, al final muestra iniciales
+    const fallbackScript = srcs.slice(1)
+        .map(s => `this.src='${s}'`)
+        .concat([`this.onerror=null;this.style.display='none';this.nextElementSibling.style.display='inline-flex'`])
+        .join(';');
+
+    return `<img src="${srcs[0]}" class="${dim} rounded-full object-cover bg-gray-700 shrink-0"
+               onerror="${fallbackScript}" loading="lazy" />
+            <span style="display:none" class="inline-flex items-center justify-center ${dim} rounded-full bg-blue-800 text-white text-[9px] font-bold shrink-0">${initials}</span>`;
 }
 
 function renderTabla() {
@@ -1373,20 +1399,14 @@ function renderIndicadores(d) {
 
     // Logo en el panel
     const logoBox = document.getElementById('ki-logo-box');
-    if (d.logo_url) {
-        logoBox.innerHTML = `<img src="${d.logo_url}" class="w-10 h-10 object-contain rounded-lg" onerror="this.parentElement.innerHTML='<span class=text-gray-500 text-xs>${d.ticker}</span>'" />`;
-        // Guardar en cache para la tabla
-        if (!logoCache[d.ticker]) {
-            logoCache[d.ticker] = d.logo_url;
-            // re-render tabla con logos
-            renderTabla();
-            // Recalcular totales sin perderlos
-            let vTotal=0, gL=0, gR=0;
-            datosActuales.forEach(i => { vTotal+=i.cantidad*i.precio_actual; gL+=i.ganancia; gR+=i.pnl_realizado||0; });
-            document.getElementById('valor-total').innerText = `$${vTotal.toLocaleString(undefined,{minimumFractionDigits:2})}`;
-        }
-    } else {
-        logoBox.innerHTML = `<span class="text-gray-400 text-xs font-bold">${d.ticker}</span>`;
+    const logoUrl = d.logo_url || `https://financialmodelingprep.com/image-stock/${d.ticker}.png`;
+    logoBox.innerHTML = `<img src="${logoUrl}"
+        class="w-10 h-10 object-contain rounded-lg bg-gray-700"
+        onerror="this.src='https://logo.clearbit.com/${(d.ticker||'').toLowerCase()}.com';this.onerror=null"
+    />`;
+    // Actualizar cache con la URL de calidad del backend
+    if (d.logo_url && d.logo_url !== logoCache[d.ticker]) {
+        logoCache[d.ticker] = d.logo_url;
     }
 
     // Rentabilidad
@@ -1956,7 +1976,12 @@ async function abrirStockModal(ticker) {
         if (el) el.textContent = '—';
     });
     document.getElementById('sk-logo').style.display = '';
-    document.getElementById('sk-logo').src = `https://logo.clearbit.com/${t.toLowerCase()}.com`;
+    // Mostrar logo inmediatamente con FMP, fallback a Clearbit
+    const skLogoEl = document.getElementById('sk-logo');
+    const fmpLogoUrl = `https://financialmodelingprep.com/image-stock/${t}.png`;
+    const clearbitUrl = `https://logo.clearbit.com/${t.toLowerCase()}.com`;
+    skLogoEl.src = logoCache[t] || fmpLogoUrl;
+    skLogoEl.onerror = () => { skLogoEl.src = clearbitUrl; skLogoEl.onerror = () => { skLogoEl.style.display='none'; }; };
     document.getElementById('modal-stock').classList.remove('hidden');
 
     // Peticiones paralelas
@@ -2681,9 +2706,9 @@ async function cargarRiesgoCartera() {
 async function precargarLogos() {
     if (datosActuales.length === 0) return;
     const promises = datosActuales.map(item =>
-        fetch(`https://finanzasluciano.onrender.com/indicadores/${item.ticker}`)
+        fetch(`https://finanzasluciano.onrender.com/logo/${item.ticker}`, { signal: AbortSignal.timeout(20000) })
             .then(r => r.json())
-            .then(d => { if (d.logo_url && !logoCache[item.ticker]) logoCache[item.ticker] = d.logo_url; })
+            .then(d => { if (d.logo_url) logoCache[item.ticker] = d.logo_url; })
             .catch(() => {})
     );
     await Promise.all(promises);

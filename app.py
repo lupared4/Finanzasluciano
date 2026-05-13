@@ -1109,6 +1109,51 @@ def crypto_info_endpoint(symbol: str):
         return {"error": str(e)}
 
 
+# ── Logo Rápido ───────────────────────────────────────────────────────────────
+@app.get("/logo/{ticker}")
+def get_logo(ticker: str):
+    """Endpoint liviano que solo devuelve la URL del logo. Cache 24h."""
+    t = ticker.upper().strip()
+    cached = _cache_get(_endpoint_cache, f"logo_{t}", 86400)
+    if cached is not None:
+        return cached
+
+    logo_url = None
+    nombre   = t
+
+    try:
+        tk   = yft(t)
+        info = {}
+        try:
+            info = tk.info or {}
+        except Exception:
+            pass
+
+        nombre  = info.get('longName', t) or t
+        website = info.get('website', '') or ''
+
+        # Fuente 1: logo_url directa de yfinance (versiones antiguas)
+        if info.get('logo_url'):
+            logo_url = info['logo_url']
+
+        # Fuente 2: Clearbit por dominio real de la empresa
+        if not logo_url and website:
+            domain = website.replace('https://','').replace('http://','').split('/')[0]
+            if domain:
+                logo_url = f"https://logo.clearbit.com/{domain}"
+
+        # Fuente 3: FMP image (para acciones US — no necesita auth)
+        if not logo_url:
+            logo_url = f"https://financialmodelingprep.com/image-stock/{t}.png"
+
+    except Exception:
+        logo_url = f"https://financialmodelingprep.com/image-stock/{t}.png"
+
+    result = {"ticker": t, "nombre": nombre, "logo_url": logo_url}
+    _cache_set(_endpoint_cache, f"logo_{t}", result)
+    return result
+
+
 # ── Indicadores Financieros Fundamentales ────────────────────────────────────
 @app.get("/indicadores/{ticker}")
 def indicadores_financieros(ticker: str):
