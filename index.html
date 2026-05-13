@@ -535,11 +535,31 @@
                        onkeydown="if(event.key==='Enter') document.getElementById('input-precio').focus()">
                 <input type="number" id="input-precio" placeholder="Precio Compra (USD)"
                        class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white outline-none"
+                       oninput="_triggerSizing()"
                        onkeydown="if(event.key==='Enter') enviarCompra()">
                 <input type="text" id="input-nota" placeholder="Nota (opcional: ej. rebalanceo, stoploss…)"
                        class="w-full bg-gray-700/60 rounded-lg p-2 mb-3 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500/50"
                        maxlength="120"
                        onkeydown="if(event.key==='Enter') enviarCompra()">
+                <!-- Sizing sugerido -->
+                <div id="sizing-box" class="hidden mb-3 bg-blue-900/20 border border-blue-800/40 rounded-xl p-3 text-xs">
+                    <p class="text-blue-400 font-bold text-[10px] uppercase tracking-widest mb-2">📐 Sizing Sugerido</p>
+                    <div class="grid grid-cols-3 gap-2 text-center">
+                        <div class="bg-gray-900/60 rounded-lg p-2">
+                            <p class="text-gray-500 text-[9px] uppercase">Conservador<br>1% riesgo</p>
+                            <p id="sizing-cons" class="font-mono font-bold text-blue-300 mt-1">—</p>
+                        </div>
+                        <div class="bg-gray-900/60 rounded-lg p-2 border border-blue-700/50">
+                            <p class="text-gray-500 text-[9px] uppercase">Moderado<br>2% riesgo</p>
+                            <p id="sizing-mod" class="font-mono font-bold text-green-300 mt-1">—</p>
+                        </div>
+                        <div class="bg-gray-900/60 rounded-lg p-2">
+                            <p class="text-gray-500 text-[9px] uppercase">Agresivo<br>4% riesgo</p>
+                            <p id="sizing-agr" class="font-mono font-bold text-yellow-300 mt-1">—</p>
+                        </div>
+                    </div>
+                    <p class="text-gray-600 text-[9px] mt-2 text-center">Basado en volatilidad 20d · portafolio actual</p>
+                </div>
                 <button id="btn-registrar" onclick="enviarCompra()"
                         class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded-lg font-bold transition-all">
                     Registrar Compra
@@ -579,6 +599,17 @@
                     <div class="bg-gray-900/60 rounded-xl p-2 border border-gray-700" title="VaR 95%: pérdida máxima esperada en un día con 95% de confianza">
                         <p class="text-gray-500 text-[9px] uppercase mb-1">VaR 95%</p>
                         <p id="riesgo-var" class="text-orange-400 font-mono font-bold text-sm">—</p>
+                    </div>
+                </div>
+
+                <!-- Heatmap de correlación -->
+                <div class="border-t border-gray-700 mt-4 pt-4">
+                    <div class="flex justify-between items-center mb-2">
+                        <p class="text-gray-400 text-[10px] uppercase tracking-widest">Correlación Portafolio</p>
+                        <button onclick="calcularCorrelacion()" class="text-[10px] text-blue-400 hover:text-blue-300 transition-colors">↻ Calc</button>
+                    </div>
+                    <div id="heatmap-corr" class="overflow-x-auto">
+                        <p class="text-gray-700 text-[10px] italic text-center py-2">Presioná Calc para calcular</p>
                     </div>
                 </div>
             </div>
@@ -766,6 +797,28 @@
                     <span id="ia-target-bajo" class="text-red-400 font-mono">—</span>
                     <span class="text-gray-600">◀ rango ▶</span>
                     <span id="ia-target-alto" class="text-green-400 font-mono">—</span>
+                </div>
+            </div>
+
+            <!-- Zona de compra técnica -->
+            <div class="bg-green-900/20 border border-green-800/40 rounded-xl p-3 mb-4 text-xs" id="zona-compra-box">
+                <div class="flex justify-between items-center mb-1.5">
+                    <span class="text-green-400 font-bold uppercase tracking-widest text-[10px]">🎯 Zona de Compra</span>
+                    <span id="zona-compra-senal" class="text-[9px] px-2 py-0.5 rounded-full bg-gray-700 text-gray-400">calculando…</span>
+                </div>
+                <div class="flex justify-between">
+                    <div class="text-center">
+                        <p class="text-gray-500 text-[9px] uppercase">Soporte 20d</p>
+                        <p id="zona-soporte20" class="font-mono font-bold text-yellow-300">—</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-gray-500 text-[9px] uppercase">SMA 50</p>
+                        <p id="zona-sma50" class="font-mono font-bold text-indigo-300">—</p>
+                    </div>
+                    <div class="text-center">
+                        <p class="text-gray-500 text-[9px] uppercase">Distancia</p>
+                        <p id="zona-distancia" class="font-mono font-bold text-white">—</p>
+                    </div>
                 </div>
             </div>
 
@@ -1658,6 +1711,51 @@ function renderGrafico(datos) {
     }
 
     lwChart.timeScale().fitContent();
+
+    // Calcular y mostrar zona de compra técnica
+    _calcularZonaCompra(datos);
+}
+
+function _calcularZonaCompra(datos) {
+    const s20El  = document.getElementById('zona-soporte20');
+    const sm50El = document.getElementById('zona-sma50');
+    const distEl = document.getElementById('zona-distancia');
+    const senEl  = document.getElementById('zona-compra-senal');
+    if (!s20El || !datos || datos.length < 5) return;
+
+    const closes = datos.map(d => d.close);
+    const lows   = datos.map(d => d.low || d.close);
+    const ultimo = closes[closes.length - 1];
+
+    // Soporte 20d: mínimo de los últimos 20 días
+    const ventana20 = lows.slice(-20);
+    const soporte20 = Math.min(...ventana20);
+
+    // SMA 50 (si hay datos)
+    const sma50arr = _sma(closes, 50);
+    const sma50    = sma50arr[sma50arr.length - 1];
+
+    // Distancia al soporte más cercano
+    const nivelRef  = sma50 != null ? Math.max(soporte20, sma50) : soporte20;
+    const distPct   = ((ultimo - nivelRef) / nivelRef * 100);
+    const distStr   = distPct >= 0 ? `+${distPct.toFixed(1)}%` : `${distPct.toFixed(1)}%`;
+
+    s20El.textContent  = `$${soporte20.toFixed(2)}`;
+    sm50El.textContent = sma50 != null ? `$${sma50.toFixed(2)}` : '—';
+    distEl.textContent = distStr;
+    distEl.className   = `font-mono font-bold ${distPct <= 3 ? 'text-green-300' : distPct <= 10 ? 'text-yellow-300' : 'text-gray-400'}`;
+
+    // Señal de compra
+    let senal = '', senalClass = '';
+    if (distPct <= 2) {
+        senal = '🟢 En zona'; senalClass = 'bg-green-800/60 text-green-300 border border-green-700';
+    } else if (distPct <= 8) {
+        senal = '🟡 Cerca';   senalClass = 'bg-yellow-800/50 text-yellow-300 border border-yellow-700/50';
+    } else {
+        senal = '⬜ Lejos';   senalClass = 'bg-gray-700 text-gray-400 border border-gray-600';
+    }
+    senEl.textContent  = senal;
+    senEl.className    = `text-[9px] px-2 py-0.5 rounded-full ${senalClass}`;
 }
 
 function _agregarMarcadoresGrafico(serie) {
@@ -2510,6 +2608,56 @@ function setTipoActivo(tipo) {
 
 const historialSesion = [];
 
+// ─── Sizing automático ──────────────────────────────────────────────────────
+let _sizingTimer = null;
+function _triggerSizing() {
+    clearTimeout(_sizingTimer);
+    _sizingTimer = setTimeout(_calcularSizing, 800);
+}
+
+async function _calcularSizing() {
+    const t = (document.getElementById('input-ticker')?.value || '').trim().toUpperCase();
+    const p = parseFloat(document.getElementById('input-precio')?.value);
+    const box = document.getElementById('sizing-box');
+    if (!box) return;
+
+    // Necesitamos: precio del activo y valor total del portafolio
+    const precioActivo = p > 0 ? p : (datosActuales.find(d => d.ticker === t)?.precio_actual || 0);
+    const patrimonioUSD = datosActuales.reduce((s, i) => s + i.cantidad * i.precio_actual, 0);
+    if (!t || precioActivo <= 0 || patrimonioUSD <= 0) { box.classList.add('hidden'); return; }
+
+    // Obtener volatilidad 20d (std dev de retornos diarios) desde las velas en cache o fetch rápido
+    let vol20 = null;
+    try {
+        const velas = await fetch(`https://finanzasluciano.onrender.com/velas/${t}?period=3mo`, { signal: AbortSignal.timeout(15000) }).then(r => r.json());
+        if (Array.isArray(velas) && velas.length >= 20) {
+            const closes = velas.map(v => v.close);
+            const returns = closes.slice(1).map((c, i) => Math.log(c / closes[i]));
+            const last20  = returns.slice(-20);
+            const mean    = last20.reduce((a, b) => a + b, 0) / last20.length;
+            const variance = last20.reduce((s, r) => s + (r - mean) ** 2, 0) / last20.length;
+            vol20 = Math.sqrt(variance); // desv. std diaria
+        }
+    } catch {}
+
+    if (!vol20 || vol20 <= 0) { box.classList.add('hidden'); return; }
+
+    // Position sizing: (Patrimonio × riesgo%) / (precioActivo × volatilidad)
+    // Resultado en cantidad de unidades
+    const calcUnidades = (riesgoPct) => {
+        const montoRiesgo = patrimonioUSD * (riesgoPct / 100);
+        const riesgoUnidad = precioActivo * vol20 * Math.sqrt(20); // riesgo en 20d
+        const unidades = Math.floor(montoRiesgo / riesgoUnidad);
+        const monto = unidades * precioActivo;
+        return unidades > 0 ? `${unidades}u ($${monto.toFixed(0)})` : '<1u';
+    };
+
+    document.getElementById('sizing-cons').textContent = calcUnidades(1);
+    document.getElementById('sizing-mod').textContent  = calcUnidades(2);
+    document.getElementById('sizing-agr').textContent  = calcUnidades(4);
+    box.classList.remove('hidden');
+}
+
 function enviarCompra() {
     const t = document.getElementById('input-ticker').value.trim().toUpperCase();
     const c = document.getElementById('input-cantidad').value;
@@ -2915,6 +3063,8 @@ function limpiarHistorialConfirm() {
 // ═══════════════════════════════════════════════════════════════════════════
 function _getAlertas()  { try { return JSON.parse(localStorage.getItem('alertas_precio') || '[]'); } catch { return []; } }
 function _saveAlertas(a){ localStorage.setItem('alertas_precio', JSON.stringify(a)); }
+function _getAlertasLog()  { try { return JSON.parse(localStorage.getItem('alertas_log') || '[]'); } catch { return []; } }
+function _saveAlertasLog(l){ localStorage.setItem('alertas_log', JSON.stringify(l)); }
 
 function abrirAlertas() {
     // Verificar estado permiso notificaciones
@@ -2922,6 +3072,7 @@ function abrirAlertas() {
         document.getElementById('alerta-permiso-banner').classList.remove('hidden');
     }
     renderAlertas();
+    renderAlertasLog();
     document.getElementById('modal-alertas').classList.remove('hidden');
 }
 
@@ -2983,6 +3134,33 @@ function eliminarAlerta(id) {
     renderAlertas();
 }
 
+function renderAlertasLog() {
+    const log  = _getAlertasLog();
+    const cont = document.getElementById('alertas-log');
+    if (!cont) return;
+    if (!log.length) {
+        cont.innerHTML = '<p class="text-gray-700 italic text-xs text-center py-2">Ninguna alerta disparada aún</p>';
+        return;
+    }
+    cont.innerHTML = log.map(e => {
+        const fecha = new Date(e.fecha);
+        const ts = fecha.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
+        return `
+        <div class="flex items-start justify-between bg-gray-900/50 rounded-lg px-3 py-2 border border-gray-700/50">
+            <div class="min-w-0">
+                <p class="text-yellow-300 font-bold text-xs">${e.ticker} <span class="text-gray-500 font-normal">· ${ts}</span></p>
+                <p class="text-gray-400 text-[10px] mt-0.5 leading-relaxed">${e.mensaje}</p>
+            </div>
+            <span class="text-green-500 text-base ml-2 shrink-0">✓</span>
+        </div>`;
+    }).join('');
+}
+
+function limpiarAlertasLog() {
+    _saveAlertasLog([]);
+    renderAlertasLog();
+}
+
 async function verificarAlertas() {
     const alertas = _getAlertas().filter(a => a.activa);
     if (!alertas.length) return;
@@ -3016,6 +3194,11 @@ async function verificarAlertas() {
         if (a.tipo === 'baja_pct' && c <= -a.valor) { disparada = true; mensaje = `${a.ticker} bajó ${Math.abs(c).toFixed(1)}% hoy (umbral: ${a.valor}%)`; }
         if (disparada) {
             new Notification('🔔 Alerta de Precio — Terminal Inversiones', { body: mensaje });
+            // Guardar en historial de alertas
+            const log = _getAlertasLog();
+            log.unshift({ ticker: a.ticker, tipo: a.tipo, valor: a.valor, mensaje, fecha: new Date().toISOString(), precio: p });
+            if (log.length > 50) log.pop(); // máximo 50 entradas
+            _saveAlertasLog(log);
             return { ...a, activa: false };
         }
         return a;
@@ -3408,6 +3591,87 @@ setTimeout(() => {
     verificarAlertas();
     setInterval(verificarAlertas, 300000);
 }, 15000);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HEATMAP DE CORRELACIÓN
+// ═══════════════════════════════════════════════════════════════════════════
+async function calcularCorrelacion() {
+    const cont = document.getElementById('heatmap-corr');
+    if (!cont) return;
+    if (datosActuales.length < 2) {
+        cont.innerHTML = '<p class="text-gray-600 text-[10px] italic text-center py-2">Necesitás al menos 2 activos</p>';
+        return;
+    }
+    cont.innerHTML = '<p class="text-gray-600 text-[10px] italic text-center py-2 animate-pulse">Cargando retornos…</p>';
+
+    const tickers = datosActuales.map(d => d.ticker);
+    const retornosMap = {};
+
+    await Promise.allSettled(tickers.map(async t => {
+        try {
+            const velas = await fetch(`https://finanzasluciano.onrender.com/velas/${t}?period=3mo`, { signal: AbortSignal.timeout(20000) }).then(r => r.json());
+            if (Array.isArray(velas) && velas.length >= 10) {
+                const closes = velas.map(v => v.close);
+                retornosMap[t] = closes.slice(1).map((c, i) => (c - closes[i]) / closes[i]);
+            }
+        } catch {}
+    }));
+
+    const disponibles = tickers.filter(t => retornosMap[t]);
+    if (disponibles.length < 2) {
+        cont.innerHTML = '<p class="text-gray-600 text-[10px] italic text-center py-2">Sin datos suficientes</p>';
+        return;
+    }
+
+    // Calcular correlaciones de Pearson
+    const corrMatrix = {};
+    disponibles.forEach(a => {
+        corrMatrix[a] = {};
+        disponibles.forEach(b => {
+            corrMatrix[a][b] = a === b ? 1 : _pearson(retornosMap[a], retornosMap[b]);
+        });
+    });
+
+    // Render tabla
+    const n = disponibles.length;
+    const cellSize = n > 5 ? 'text-[8px] px-1 py-1' : 'text-[9px] px-2 py-1.5';
+    let html = `<table class="text-center w-full text-[9px]"><thead><tr><th></th>`;
+    disponibles.forEach(t => { html += `<th class="text-gray-500 font-bold pb-1 ${cellSize}">${t.replace('.BA','')}</th>`; });
+    html += '</tr></thead><tbody>';
+    disponibles.forEach(a => {
+        html += `<tr><td class="text-gray-500 font-bold pr-1 text-right ${cellSize}">${a.replace('.BA','')}</td>`;
+        disponibles.forEach(b => {
+            const r = corrMatrix[a][b];
+            const bg = r === 1 ? 'bg-gray-700 text-gray-400'
+                : r > 0.7  ? 'bg-red-900/70 text-red-300'
+                : r > 0.4  ? 'bg-orange-900/60 text-orange-300'
+                : r > 0.1  ? 'bg-gray-800 text-gray-400'
+                : r > -0.1 ? 'bg-gray-900 text-gray-500'
+                : r > -0.4 ? 'bg-blue-900/40 text-blue-300'
+                :             'bg-blue-900/70 text-blue-200';
+            html += `<td class="rounded ${cellSize} ${bg}" title="${a} vs ${b}: ${r.toFixed(2)}">${r.toFixed(2)}</td>`;
+        });
+        html += '</tr>';
+    });
+    html += '</tbody></table>';
+    html += '<p class="text-gray-700 text-[9px] mt-1 text-center">🔴 alta corr · 🔵 baja/neg · basado en 3 meses</p>';
+    cont.innerHTML = html;
+}
+
+function _pearson(a, b) {
+    const n = Math.min(a.length, b.length);
+    if (n < 5) return 0;
+    const ax = a.slice(-n), bx = b.slice(-n);
+    const ma = ax.reduce((s, v) => s + v, 0) / n;
+    const mb = bx.reduce((s, v) => s + v, 0) / n;
+    let num = 0, da = 0, db = 0;
+    for (let i = 0; i < n; i++) {
+        const dA = ax[i] - ma, dB = bx[i] - mb;
+        num += dA * dB; da += dA * dA; db += dB * dB;
+    }
+    const denom = Math.sqrt(da * db);
+    return denom === 0 ? 0 : Math.round(num / denom * 100) / 100;
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // TIPO DE CAMBIO ARS — dolarapi.com (gratuita, sin auth)
@@ -3822,6 +4086,14 @@ setTimeout(() => cargarWatchlistCards(), 3000); // 3s después del arranque
         <div id="alertas-lista" class="space-y-2">
           <p class="text-gray-600 italic text-xs text-center py-2">Sin alertas configuradas</p>
         </div>
+      </div>
+      <!-- Historial de disparos -->
+      <div>
+        <p class="text-gray-500 text-[10px] uppercase tracking-widest mb-2 mt-1">📋 Historial de Disparos</p>
+        <div id="alertas-log" class="space-y-1.5">
+          <p class="text-gray-700 italic text-xs text-center py-2">Ninguna alerta disparada aún</p>
+        </div>
+        <button onclick="limpiarAlertasLog()" class="mt-2 text-[10px] text-gray-600 hover:text-red-400 transition-colors">✕ Limpiar historial</button>
       </div>
     </div>
   </div>
