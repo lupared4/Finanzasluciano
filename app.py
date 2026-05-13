@@ -145,6 +145,40 @@ def obtener_precio(ticker: str):
     return {"ticker": ticker.upper(), "precio": get_precio_actual(ticker)}
 
 
+# ─── Autocompletado de tickers (proxy Yahoo Finance Search) ──────────────────
+@app.get("/buscar-ticker")
+def buscar_ticker(q: str = Query("")):
+    """Proxy de búsqueda de Yahoo Finance para autocompletado de tickers."""
+    if len(q.strip()) < 1:
+        return []
+    q_up = q.upper()
+    cached = _cache_get(_endpoint_cache, f"search_{q_up}", 3600)
+    if cached is not None:
+        return cached
+    try:
+        url = (
+            "https://query2.finance.yahoo.com/v1/finance/search"
+            f"?q={q}&quotesCount=6&newsCount=0&listsCount=0&enableFuzzyQuery=false"
+        )
+        r = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=8)
+        quotes = r.json().get("quotes", [])
+        result = [
+            {
+                "ticker": item.get("symbol", ""),
+                "nombre": item.get("shortname") or item.get("longname") or "",
+                "tipo":   item.get("typeDisp", ""),
+                "bolsa":  item.get("exchDisp", ""),
+            }
+            for item in quotes[:6]
+            if item.get("symbol")
+        ]
+        _cache_set(_endpoint_cache, f"search_{q_up}", result)
+        return result
+    except Exception as e:
+        print(f"Error buscar-ticker: {e}")
+        return []
+
+
 # ─── Resumen de cartera ───────────────────────────────────────────────────────
 @app.get("/resumen")
 def obtener_resumen():
@@ -1486,6 +1520,87 @@ def tendencias_ia():
     except Exception as e:
         print(f"Error tendencias-ia: {e}")
         return []
+
+
+# ─── Métricas de riesgo del portafolio (Sharpe, Max Drawdown, VaR) ───────────
+@app.get("/riesgo-cartera")
+def riesgo_cartera(tickers: str = Query(default="")):
+    """
+    Calcula Sharpe Ratio, Max Drawdown y VaR(95%) de la cartera completa.
+    Recibe: /riesgo-cartera?tickers=AAPL,MSFT,NVDA
+    """
+    if not tickers.strip():
+        return {"error": "Se requieren tickers"}
+
+    ticker_list = [t.strip().upper() for t in tickers.split(',') if t.strip()]
+    # Excluir cryptos (no aplican para cálculos de riesgo con benchmark SPY)
+    stock_tickers = [
+        t for t in ticker_list
+        if t.replace('-USD', '').replace('/USD', '') not in CRYPTO_SYMBOLS
+    ]
+    if not stock_tickers:
+        return {"sharpe": None, "max_drawdown": None, "var_95": None, "ret_anual": None, "n_tickers": 0}
+
+    cache_key = f"riesgo_{'_'.join(sorted(stock_tickers))}"
+    cached = _cache_get(_endpoint_cache, cache_key, 3600)
+    if cached is not None:
+        return cached
+
+    try:
+        syms_list = [yf_sym(t) for t in stock_tickers]
+        data = yf.download(
+            " ".join(syms_list), period="1y",
+            auto_adjust=True, progress=False
+        )
+        if isinstance(data.columns, pd.MultiIndex):
+            closes = data["Close"]
+        else:
+            closes = data[["Close"]]
+
+        returns_list = []
+        for t, sym in zip(stock_tickers, syms_list):
+            col = sym if sym in closes.columns else (t if t in closes.columns else None)
+            if col is None:
+                continue
+            r = closes[col].dropna().pct_change().dropna()
+            if len(r) > 20:
+                returns_list.append(r)
+
+        if not returns_list:
+            return {"error": "No hay datos suficientes para calcular riesgo"}
+
+        # Retorno diario del portafolio (peso igual por activo — simplificado)
+        port_ret = pd.concat(returns_list, axis=1).mean(axis=1).dropna()
+
+        # Sharpe Ratio anualizado (Rf = 5% anual = 0.05/252 diario)
+        rf_daily = 0.05 / 252
+        excess   = port_ret - rf_daily
+        sharpe   = round(float(excess.mean() / excess.std() * np.sqrt(252)), 2) if excess.std() > 0 else 0.0
+
+        # Max Drawdown (peor caída desde máximo histórico en el período)
+        cum         = (1 + port_ret).cumprod()
+        rolling_max = cum.cummax()
+        drawdowns   = (cum - rolling_max) / rolling_max
+        max_dd      = round(float(drawdowns.min()) * 100, 2)
+
+        # VaR(95%) — pérdida máxima esperada en 1 día con 95% de confianza
+        var_95 = round(float(np.percentile(port_ret, 5)) * 100, 2)
+
+        # Retorno anualizado
+        ret_anual = round(float(port_ret.mean() * 252 * 100), 2)
+
+        result = {
+            "sharpe":       sharpe,
+            "max_drawdown": max_dd,
+            "var_95":       var_95,
+            "ret_anual":    ret_anual,
+            "n_tickers":    len(returns_list),
+        }
+        _cache_set(_endpoint_cache, cache_key, result)
+        return result
+    except Exception as e:
+        print(f"Error riesgo-cartera: {e}")
+        return {"error": str(e)}
 
 
 if __name__ == "__main__":

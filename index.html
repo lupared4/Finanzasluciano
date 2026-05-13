@@ -7,9 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js"></script>
+    <!-- XLSX y jsPDF se cargan dinámicamente solo cuando se exporta -->
 </head>
 <body class="bg-gray-900 text-gray-100 font-sans">
 
@@ -433,7 +431,15 @@
                 <p class="text-blue-400 text-[11px] sm:text-xs tracking-widest uppercase font-medium">Tu portafolio. Tu control. Tu futuro.</p>
             </div>
         </div>
-        <div class="flex items-center gap-3">
+        <div class="flex items-center gap-2 flex-wrap justify-end">
+            <button onclick="abrirHistorial()"
+                    class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded-full font-bold transition-all flex items-center gap-1.5 whitespace-nowrap">
+                📋 Historial
+            </button>
+            <button onclick="abrirAlertas()"
+                    class="text-xs bg-yellow-700 hover:bg-yellow-600 px-3 py-1.5 rounded-full font-bold transition-all flex items-center gap-1.5 whitespace-nowrap">
+                🔔 Alertas
+            </button>
             <button onclick="document.getElementById('modal-perfil').classList.remove('hidden')"
                     class="text-xs bg-purple-700 hover:bg-purple-600 px-3 py-1.5 rounded-full font-bold transition-all flex items-center gap-1.5 whitespace-nowrap">
                 💼 Mi Portafolio
@@ -477,9 +483,14 @@
                         ₿ Crypto
                     </button>
                 </div>
-                <input type="text" id="input-ticker" placeholder="Ticker (ej: AAPL)"
-                       class="w-full bg-gray-700 rounded-lg p-2 mb-3 uppercase text-white focus:ring-2 focus:ring-blue-500 outline-none"
-                       onkeydown="if(event.key==='Enter') document.getElementById('input-cantidad').focus()">
+                <div class="relative mb-3">
+                    <input type="text" id="input-ticker" placeholder="Ticker (ej: AAPL)"
+                           class="w-full bg-gray-700 rounded-lg p-2 uppercase text-white focus:ring-2 focus:ring-blue-500 outline-none"
+                           autocomplete="off"
+                           oninput="debounceAutocompleteTicker(this.value)"
+                           onkeydown="if(event.key==='Enter'){cerrarAutocompleteTicker();document.getElementById('input-cantidad').focus();}if(event.key==='Escape')cerrarAutocompleteTicker();">
+                    <div id="ticker-dropdown" class="absolute z-50 w-full mt-1 bg-gray-800 border border-gray-600 rounded-xl shadow-2xl hidden overflow-hidden"></div>
+                </div>
                 <input type="number" id="input-cantidad" placeholder="Cantidad"
                        class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white outline-none"
                        onkeydown="if(event.key==='Enter') document.getElementById('input-precio').focus()">
@@ -509,6 +520,24 @@
                 <div class="border-t border-gray-700 my-4"></div>
                 <p class="text-gray-400 text-xs uppercase tracking-widest">P&amp;L Realizado</p>
                 <h2 id="pnl-realizado-total" class="text-xl sm:text-2xl font-mono mt-1 font-bold text-yellow-400">$0.00</h2>
+
+                <!-- ── Métricas de Riesgo del Portafolio ── -->
+                <div class="border-t border-gray-700 my-4"></div>
+                <p class="text-gray-400 text-[10px] uppercase tracking-widest mb-3">Riesgo del Portafolio</p>
+                <div class="grid grid-cols-3 gap-2 text-center">
+                    <div class="bg-gray-900/60 rounded-xl p-2 border border-gray-700" title="Sharpe Ratio: retorno ajustado por riesgo. >1 = bueno, >2 = excelente">
+                        <p class="text-gray-500 text-[9px] uppercase mb-1">Sharpe</p>
+                        <p id="riesgo-sharpe" class="text-white font-mono font-bold text-sm">—</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-2 border border-gray-700" title="Max Drawdown: peor caída desde un máximo histórico en el último año">
+                        <p class="text-gray-500 text-[9px] uppercase mb-1">Max DD</p>
+                        <p id="riesgo-maxdd" class="text-red-400 font-mono font-bold text-sm">—</p>
+                    </div>
+                    <div class="bg-gray-900/60 rounded-xl p-2 border border-gray-700" title="VaR 95%: pérdida máxima esperada en un día con 95% de confianza">
+                        <p class="text-gray-500 text-[9px] uppercase mb-1">VaR 95%</p>
+                        <p id="riesgo-var" class="text-orange-400 font-mono font-bold text-sm">—</p>
+                    </div>
+                </div>
             </div>
         </div>
 
@@ -964,6 +993,29 @@
         </div>
     </div>
 
+    <!-- ── ROW 3b: Evolución del Portafolio ──────────────────────────────── -->
+    <div class="mt-6 bg-gray-800 p-4 sm:p-5 rounded-xl border border-gray-700 shadow-lg">
+        <div class="flex flex-wrap justify-between items-center mb-4 gap-2">
+            <div>
+                <h3 class="text-blue-300 font-bold text-sm uppercase tracking-widest">📈 Evolución del Portafolio</h3>
+                <p class="text-gray-500 text-[10px] mt-0.5">Valor total histórico · datos guardados localmente</p>
+            </div>
+            <div class="flex gap-2 items-center">
+                <div class="flex gap-1 bg-gray-700 rounded-lg p-1">
+                    <button id="evo-btn-1m" onclick="cambiarRangoEvo('1m')"
+                            class="evo-btn px-2 py-1 text-xs rounded font-bold bg-blue-600 text-white transition-all">1M</button>
+                    <button id="evo-btn-3m" onclick="cambiarRangoEvo('3m')"
+                            class="evo-btn px-2 py-1 text-xs rounded font-bold text-gray-400 hover:text-white transition-all">3M</button>
+                    <button id="evo-btn-all" onclick="cambiarRangoEvo('all')"
+                            class="evo-btn px-2 py-1 text-xs rounded font-bold text-gray-400 hover:text-white transition-all">Todo</button>
+                </div>
+                <button onclick="guardarSnapshotManual()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded font-bold transition-all">💾 Guardar</button>
+            </div>
+        </div>
+        <div style="height:200px;"><canvas id="grafico-evolucion"></canvas></div>
+        <div id="evo-stats" class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs"></div>
+    </div>
+
     <!-- ── ROW 4: Top Movers + IA Tendencias ──────────────────────────────── -->
     <div class="mt-6 grid grid-cols-1 lg:grid-cols-3 gap-6">
 
@@ -1226,54 +1278,8 @@ function logoImgHtml(ticker, size = '24') {
 }
 
 function renderTabla() {
-    const tabla = document.getElementById('tabla-cartera');
-    let vTotal = 0, gLatente = 0, gRealizado = 0;
-    tabla.innerHTML = '';
-
-    datosActuales.forEach(item => {
-        vTotal     += item.cantidad * item.precio_actual;
-        gLatente   += item.ganancia;
-        gRealizado += item.pnl_realizado || 0;
-        const color = item.ganancia >= 0 ? 'text-green-400' : 'text-red-400';
-        const pnlSign = item.ganancia >= 0 ? '+' : '';
-        tabla.innerHTML += `
-            <tr class="hover:bg-gray-700/50 cursor-pointer border-b border-gray-800 transition-colors"
-                onclick="seleccionarActivo('${item.ticker}')">
-                <td class="py-3 px-2">
-                    <div class="flex items-center gap-2">
-                        ${logoImgHtml(item.ticker)}
-                        <span class="font-bold text-blue-400">${item.ticker}</span>
-                        ${esCryptoTicker(item.ticker) ? '<span class="text-[9px] bg-orange-500/20 text-orange-400 px-1 rounded">₿</span>' : ''}
-                    </div>
-                </td>
-                <td class="text-gray-300">${item.cantidad}</td>
-                <td class="font-mono">$${item.precio_actual.toFixed(2)}</td>
-                <td class="text-right font-bold font-mono ${color}">
-                    ${pnlSign}$${item.ganancia.toLocaleString(undefined, {minimumFractionDigits:2})}
-                </td>
-                <td class="text-center whitespace-nowrap">
-                    <button onclick="event.stopPropagation(); abrirModalVenta('${item.ticker}')"
-                            class="text-[10px] bg-red-900 hover:bg-red-700 px-2 py-1 rounded font-bold mr-1 transition-all">
-                        Vender
-                    </button>
-                    <button onclick="event.stopPropagation(); eliminarActivo('${item.ticker}')"
-                            class="text-[10px] bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded transition-all">
-                        🗑️
-                    </button>
-                </td>
-            </tr>`;
-    });
-
-    document.getElementById('valor-total').innerText =
-        `$${vTotal.toLocaleString(undefined, {minimumFractionDigits:2})}`;
-
-    const elLat  = document.getElementById('ganancia-total');
-    elLat.innerText = `$${gLatente.toLocaleString(undefined, {minimumFractionDigits:2})}`;
-    elLat.className = `text-2xl font-mono mt-1 font-bold ${gLatente >= 0 ? 'text-green-400' : 'text-red-400'}`;
-
-    const elReal = document.getElementById('pnl-realizado-total');
-    elReal.innerText = `$${gRealizado.toLocaleString(undefined, {minimumFractionDigits:2})}`;
-    elReal.className = `text-2xl font-mono mt-1 font-bold ${gRealizado >= 0 ? 'text-yellow-400' : 'text-red-400'}`;
+    // ⚠ Definición actualizada más abajo (con badges CEDEAR/Bono, botón Comparar y snapshot automático)
+    // Esta función está sobreescrita por la versión completa en la sección CEDEARs/ACTIVOS ARGENTINOS
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1514,6 +1520,7 @@ function renderGrafico(datos) {
     if (tipoGrafico === 'linea') {
         const serie = lwChart.addLineSeries({ color: '#3b82f6', lineWidth: 2 });
         serie.setData(datos.map(d => ({ time: d.time, value: d.close })));
+        _agregarMarcadoresGrafico(serie);
     } else {
         const serie = lwChart.addCandlestickSeries({
             upColor:         '#10b981', downColor:       '#ef4444',
@@ -1523,8 +1530,28 @@ function renderGrafico(datos) {
         serie.setData(datos.map(d => ({
             time: d.time, open: d.open, high: d.high, low: d.low, close: d.close,
         })));
+        _agregarMarcadoresGrafico(serie);
     }
     lwChart.timeScale().fitContent();
+}
+
+function _agregarMarcadoresGrafico(serie) {
+    if (!tickerActivo) return;
+    const ops = getOperaciones().filter(op => op.ticker === tickerActivo);
+    if (!ops.length) return;
+    const markers = ops
+        .map(op => ({
+            time:     op.fecha.substring(0, 10),
+            position: op.tipo === 'Compra' ? 'belowBar' : 'aboveBar',
+            color:    op.tipo === 'Compra' ? '#22c55e' : '#ef4444',
+            shape:    op.tipo === 'Compra' ? 'arrowUp'  : 'arrowDown',
+            text:     `${op.tipo === 'Compra' ? '▲' : '▼'} ${op.cantidad}u @ $${parseFloat(op.precio).toFixed(0)}`,
+        }))
+        .filter(m => m.time && m.time.length === 10)
+        .sort((a, b) => a.time > b.time ? 1 : -1);
+    if (markers.length) {
+        try { serie.setMarkers(markers); } catch(e) { console.warn('Markers error:', e); }
+    }
 }
 
 async function cambiarPeriodo(period) {
@@ -2414,14 +2441,36 @@ function eliminarActivo(t) {
 // ═══════════════════════════════════════════════════════════════════════════
 // EXPORTAR
 // ═══════════════════════════════════════════════════════════════════════════
-function exportarExcel() {
+async function exportarExcel() {
+    if (!window.XLSX) {
+        await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+            s.onload = resolve; s.onerror = reject;
+            document.head.appendChild(s);
+        });
+    }
     const ws = XLSX.utils.json_to_sheet(datosActuales);
     const wb = XLSX.utils.book_new();
     XLSX.utils.book_append_sheet(wb, ws, "Cartera");
     XLSX.writeFile(wb, "Cartera.xlsx");
 }
 
-function exportarPDF() {
+async function exportarPDF() {
+    if (!window.jspdf) {
+        await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js';
+            s.onload = resolve; s.onerror = reject;
+            document.head.appendChild(s);
+        });
+        await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdnjs.cloudflare.com/ajax/libs/jspdf-autotable/3.5.25/jspdf.plugin.autotable.min.js';
+            s.onload = resolve; s.onerror = reject;
+            document.head.appendChild(s);
+        });
+    }
     const { jsPDF } = window.jspdf;
     const doc = new jsPDF();
     doc.setFontSize(16); doc.text("Portfolio Financiero", 14, 15);
@@ -2556,6 +2605,76 @@ function agregarDesdeRecomendacion(ticker) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// AUTOCOMPLETADO DE TICKERS
+// ═══════════════════════════════════════════════════════════════════════════
+let _autocompleteTimer = null;
+
+function debounceAutocompleteTicker(val) {
+    clearTimeout(_autocompleteTimer);
+    const dd = document.getElementById('ticker-dropdown');
+    if (!val || val.length < 1) { dd.classList.add('hidden'); return; }
+    _autocompleteTimer = setTimeout(() => _fetchAutocompleteTicker(val), 300);
+}
+
+async function _fetchAutocompleteTicker(query) {
+    try {
+        const data = await fetch(
+            `https://finanzasluciano.onrender.com/buscar-ticker?q=${encodeURIComponent(query)}`
+        ).then(r => r.json());
+        const dd = document.getElementById('ticker-dropdown');
+        if (!data || data.length === 0) { dd.classList.add('hidden'); return; }
+        dd.innerHTML = data.map(item => `
+            <div onclick="seleccionarSugerencia('${item.ticker}')"
+                 class="flex items-center justify-between px-3 py-2 hover:bg-gray-700 cursor-pointer border-b border-gray-700/50 last:border-0 transition-colors">
+                <div class="min-w-0">
+                    <span class="font-bold text-blue-400 text-sm">${item.ticker}</span>
+                    <span class="text-gray-400 text-xs ml-2 truncate">${(item.nombre || '').substring(0, 28)}</span>
+                </div>
+                <span class="text-gray-600 text-[10px] ml-2 shrink-0">${item.bolsa || ''}</span>
+            </div>
+        `).join('');
+        dd.classList.remove('hidden');
+    } catch(e) { /* silencioso */ }
+}
+
+function seleccionarSugerencia(ticker) {
+    document.getElementById('input-ticker').value = ticker.toUpperCase();
+    cerrarAutocompleteTicker();
+    document.getElementById('input-cantidad').focus();
+}
+
+function cerrarAutocompleteTicker() {
+    document.getElementById('ticker-dropdown').classList.add('hidden');
+}
+
+document.addEventListener('click', e => {
+    if (!e.target.closest('#input-ticker') && !e.target.closest('#ticker-dropdown'))
+        cerrarAutocompleteTicker();
+});
+
+// ═══════════════════════════════════════════════════════════════════════════
+// RIESGO DEL PORTAFOLIO (Sharpe, Max Drawdown, VaR)
+// ═══════════════════════════════════════════════════════════════════════════
+async function cargarRiesgoCartera() {
+    const tickers = datosActuales
+        .filter(d => !esCryptoTicker(d.ticker))
+        .map(d => d.ticker);
+    if (tickers.length === 0) return;
+    try {
+        const data = await fetch(
+            `https://finanzasluciano.onrender.com/riesgo-cartera?tickers=${tickers.join(',')}`
+        ).then(r => r.json());
+        if (data.error) return;
+        const sharpeEl = document.getElementById('riesgo-sharpe');
+        const maxddEl  = document.getElementById('riesgo-maxdd');
+        const varEl    = document.getElementById('riesgo-var');
+        if (sharpeEl && data.sharpe   != null) sharpeEl.innerText = data.sharpe.toFixed(2);
+        if (maxddEl  && data.max_drawdown != null) maxddEl.innerText = `${data.max_drawdown.toFixed(1)}%`;
+        if (varEl    && data.var_95   != null) varEl.innerText = `${data.var_95.toFixed(2)}%`;
+    } catch(e) { /* silencioso */ }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // ARRANQUE
 // ═══════════════════════════════════════════════════════════════════════════
 // Pre-carga logos de todos los activos en cartera al arrancar
@@ -2574,16 +2693,687 @@ async function precargarLogos() {
 async function arrancar() {
     await cargarDatos();
     precargarLogos();
+    renderEvolucion();                                   // gráfico portafolio (localStorage)
     // Escalonamos las llamadas pesadas para no saturar Render free-tier
-    cargarMercado();                                    // inmediato (4 tickers, rápido)
-    setTimeout(() => cargarTopMovers(),       2000);   // 2s después
-    setTimeout(() => cargarTendenciasIA(),    4500);   // 4.5s después
-    setTimeout(() => cargarCalendarioMercado(), 7000); // 7s después (el más pesado)
+    cargarMercado();                                     // inmediato (4 tickers, rápido)
+    setTimeout(() => cargarTopMovers(),        2000);   // 2s después
+    setTimeout(() => cargarTendenciasIA(),     4500);   // 4.5s después
+    setTimeout(() => cargarCalendarioMercado(), 7000);  // 7s después (el más pesado)
+    setTimeout(() => cargarRiesgoCartera(),    10000);  // 10s después (batch 1y)
 }
 
 arrancar();
-setInterval(() => { cargarDatos().then(() => precargarLogos()); }, 60000);
+setInterval(() => { cargarDatos().then(() => { precargarLogos(); cargarRiesgoCartera(); }); }, 60000);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// HISTORIAL DE OPERACIONES
+// ═══════════════════════════════════════════════════════════════════════════
+function abrirHistorial() {
+    const ops = getOperaciones();
+    const modal = document.getElementById('modal-historial');
+    // Poblar select de filtro
+    const sel = document.getElementById('hist-filtro');
+    const tickers = [...new Set(ops.map(o => o.ticker))].sort();
+    sel.innerHTML = '<option value="">Todos los tickers</option>' +
+        tickers.map(t => `<option value="${t}">${t}</option>`).join('');
+    renderHistorial();
+    modal.classList.remove('hidden');
+}
+
+function renderHistorial() {
+    const ops  = getOperaciones();
+    const filtro = document.getElementById('hist-filtro').value;
+    const filtered = filtro ? ops.filter(o => o.ticker === filtro) : ops;
+    const tabla = document.getElementById('historial-tabla');
+    const vacio = document.getElementById('historial-vacio');
+    const resumen = document.getElementById('historial-resumen');
+
+    if (filtered.length === 0) {
+        tabla.innerHTML = '';
+        vacio.classList.remove('hidden');
+        resumen.textContent = '0 operaciones';
+        return;
+    }
+    vacio.classList.add('hidden');
+
+    // Ordenar de más reciente a más antiguo
+    const sorted = [...filtered].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+    let totalInvertido = 0;
+    tabla.innerHTML = sorted.map(op => {
+        const total = op.cantidad * op.precio;
+        if (op.tipo === 'Compra') totalInvertido += total;
+        const fecha = new Date(op.fecha);
+        const fechaStr = fecha.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
+        const colorTipo = op.tipo === 'Compra' ? 'text-green-400' : 'text-red-400';
+        const bgTipo    = op.tipo === 'Compra' ? 'bg-green-900/30' : 'bg-red-900/30';
+        return `
+        <tr class="hover:bg-gray-700/30 transition-colors">
+            <td class="py-2 pr-3 text-gray-400 text-[10px] whitespace-nowrap">${fechaStr}</td>
+            <td class="py-2 pr-3 font-bold text-blue-400">${op.ticker}</td>
+            <td class="py-2 pr-3">
+                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${colorTipo} ${bgTipo}">${op.tipo}</span>
+            </td>
+            <td class="py-2 pr-3 text-right font-mono text-gray-200">${op.cantidad}</td>
+            <td class="py-2 pr-3 text-right font-mono text-gray-200">$${parseFloat(op.precio).toFixed(2)}</td>
+            <td class="py-2 text-right font-mono font-bold ${op.tipo === 'Compra' ? 'text-gray-100' : 'text-red-300'}">
+                ${op.tipo === 'Compra' ? '' : '-'}$${total.toLocaleString(undefined, {minimumFractionDigits:2})}
+            </td>
+        </tr>`;
+    }).join('');
+
+    const nCompras = filtered.filter(o => o.tipo === 'Compra').length;
+    const nVentas  = filtered.filter(o => o.tipo === 'Venta').length;
+    resumen.textContent = `${filtered.length} operaciones · ${nCompras} compras · ${nVentas} ventas`;
+}
+
+function limpiarHistorialConfirm() {
+    if (!confirm('¿Eliminar TODAS las operaciones? Esta acción no se puede deshacer.')) return;
+    saveOperaciones([]);
+    cerrarModal('modal-historial');
+    cargarDatos();
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// ALERTAS DE PRECIO
+// ═══════════════════════════════════════════════════════════════════════════
+function _getAlertas()  { try { return JSON.parse(localStorage.getItem('alertas_precio') || '[]'); } catch { return []; } }
+function _saveAlertas(a){ localStorage.setItem('alertas_precio', JSON.stringify(a)); }
+
+function abrirAlertas() {
+    // Verificar estado permiso notificaciones
+    if ('Notification' in window && Notification.permission !== 'granted') {
+        document.getElementById('alerta-permiso-banner').classList.remove('hidden');
+    }
+    renderAlertas();
+    document.getElementById('modal-alertas').classList.remove('hidden');
+}
+
+async function pedirPermisoNotificaciones() {
+    if (!('Notification' in window)) { alert('Tu navegador no soporta notificaciones.'); return; }
+    const perm = await Notification.requestPermission();
+    if (perm === 'granted') {
+        document.getElementById('alerta-permiso-banner').classList.add('hidden');
+        new Notification('Terminal de Inversiones', { body: '¡Notificaciones habilitadas! Te avisaremos cuando tus alertas se activen.', icon: '' });
+    }
+}
+
+function agregarAlerta() {
+    const ticker = document.getElementById('alerta-ticker').value.trim().toUpperCase();
+    const tipo   = document.getElementById('alerta-tipo').value;
+    const valor  = parseFloat(document.getElementById('alerta-valor').value);
+    if (!ticker || isNaN(valor) || valor <= 0) {
+        document.getElementById('alerta-ticker').classList.add('ring-2','ring-red-500');
+        document.getElementById('alerta-valor').classList.add('ring-2','ring-red-500');
+        setTimeout(() => {
+            document.getElementById('alerta-ticker').classList.remove('ring-2','ring-red-500');
+            document.getElementById('alerta-valor').classList.remove('ring-2','ring-red-500');
+        }, 1500);
+        return;
+    }
+    const alertas = _getAlertas();
+    alertas.push({ id: Date.now(), ticker, tipo, valor, activa: true, creada: new Date().toISOString() });
+    _saveAlertas(alertas);
+    document.getElementById('alerta-ticker').value = '';
+    document.getElementById('alerta-valor').value  = '';
+    renderAlertas();
+}
+
+function renderAlertas() {
+    const alertas = _getAlertas();
+    const cont = document.getElementById('alertas-lista');
+    if (alertas.length === 0) {
+        cont.innerHTML = '<p class="text-gray-600 italic text-xs text-center py-2">Sin alertas configuradas</p>';
+        return;
+    }
+    const tipoLabel = { sube_a: 'Sube a ≥', baja_a: 'Baja a ≤', sube_pct: 'Sube % día ≥', baja_pct: 'Baja % día ≤' };
+    cont.innerHTML = alertas.map(a => `
+        <div class="flex items-center justify-between bg-gray-900/60 rounded-xl p-3 border ${a.activa ? 'border-yellow-700/50' : 'border-gray-700/50'}">
+            <div class="flex items-center gap-3 min-w-0">
+                <span class="font-bold text-blue-400 text-sm">${a.ticker}</span>
+                <span class="text-gray-400 text-xs">${tipoLabel[a.tipo] || a.tipo}</span>
+                <span class="font-mono font-bold text-yellow-300 text-sm">
+                    ${a.tipo.endsWith('pct') ? a.valor + '%' : '$' + a.valor}
+                </span>
+                ${!a.activa ? '<span class="text-[9px] bg-gray-700 text-gray-500 px-1.5 rounded">disparada</span>' : ''}
+            </div>
+            <button onclick="eliminarAlerta(${a.id})" class="text-gray-500 hover:text-red-400 text-lg ml-2 transition-colors">&times;</button>
+        </div>
+    `).join('');
+}
+
+function eliminarAlerta(id) {
+    _saveAlertas(_getAlertas().filter(a => a.id !== id));
+    renderAlertas();
+}
+
+async function verificarAlertas() {
+    const alertas = _getAlertas().filter(a => a.activa);
+    if (!alertas.length) return;
+    if (!('Notification' in window) || Notification.permission !== 'granted') return;
+
+    const tickers = [...new Set(alertas.map(a => a.ticker))];
+    const precios = {};
+    const cambios = {};
+
+    await Promise.allSettled(tickers.map(async t => {
+        try {
+            const d = await fetch(`https://finanzasluciano.onrender.com/precio/${t}`).then(r => r.json());
+            precios[t] = d.precio || 0;
+            // Cambio % del día (aproximado: no tenemos cierre anterior en este endpoint)
+            // Se calcula comparando vs precio de compra en cartera como proxy
+            const enCartera = datosActuales.find(d => d.ticker === t);
+            if (enCartera && enCartera.precio_compra > 0)
+                cambios[t] = (precios[t] - enCartera.precio_actual) / enCartera.precio_actual * 100;
+        } catch {}
+    }));
+
+    const updated = _getAlertas().map(a => {
+        if (!a.activa || !(a.ticker in precios)) return a;
+        const p = precios[a.ticker];
+        const c = cambios[a.ticker] || 0;
+        let disparada = false;
+        let mensaje   = '';
+        if (a.tipo === 'sube_a'   && p >= a.valor) { disparada = true; mensaje = `${a.ticker} subió a $${p.toFixed(2)} (umbral: $${a.valor})`; }
+        if (a.tipo === 'baja_a'   && p <= a.valor) { disparada = true; mensaje = `${a.ticker} bajó a $${p.toFixed(2)} (umbral: $${a.valor})`; }
+        if (a.tipo === 'sube_pct' && c >=  a.valor) { disparada = true; mensaje = `${a.ticker} subió ${c.toFixed(1)}% hoy (umbral: ${a.valor}%)`; }
+        if (a.tipo === 'baja_pct' && c <= -a.valor) { disparada = true; mensaje = `${a.ticker} bajó ${Math.abs(c).toFixed(1)}% hoy (umbral: ${a.valor}%)`; }
+        if (disparada) {
+            new Notification('🔔 Alerta de Precio — Terminal Inversiones', { body: mensaje });
+            return { ...a, activa: false };
+        }
+        return a;
+    });
+    _saveAlertas(updated);
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// EVOLUCIÓN DEL PORTAFOLIO (snapshots en localStorage)
+// ═══════════════════════════════════════════════════════════════════════════
+let chartEvolucion = null;
+let rangoEvo = '1m';
+
+function _getSnapshots()   { try { return JSON.parse(localStorage.getItem('snapshots_cartera') || '[]'); } catch { return []; } }
+function _saveSnapshots(s) { localStorage.setItem('snapshots_cartera', JSON.stringify(s)); }
+
+function guardarSnapshot(valorTotal) {
+    if (!valorTotal || valorTotal <= 0) return;
+    const snapshots = _getSnapshots();
+    const hoy = new Date().toISOString().substring(0, 10);
+    // Actualizar si ya existe snapshot de hoy
+    const idx = snapshots.findIndex(s => s.fecha === hoy);
+    if (idx >= 0) snapshots[idx].valor = valorTotal;
+    else snapshots.push({ fecha: hoy, valor: valorTotal });
+    // Mantener solo los últimos 365 días
+    snapshots.sort((a, b) => a.fecha > b.fecha ? 1 : -1);
+    if (snapshots.length > 365) snapshots.splice(0, snapshots.length - 365);
+    _saveSnapshots(snapshots);
+    renderEvolucion();
+}
+
+function guardarSnapshotManual() {
+    const vTotal = datosActuales.reduce((s, d) => s + d.cantidad * d.precio_actual, 0);
+    guardarSnapshot(vTotal);
+    // Feedback visual
+    const btn = event.currentTarget;
+    btn.textContent = '✓ Guardado';
+    setTimeout(() => btn.textContent = '💾 Guardar', 1500);
+}
+
+function cambiarRangoEvo(rango) {
+    rangoEvo = rango;
+    document.querySelectorAll('.evo-btn').forEach(b => {
+        b.classList.remove('bg-blue-600','text-white');
+        b.classList.add('text-gray-400');
+    });
+    const btn = document.getElementById(`evo-btn-${rango}`);
+    if (btn) { btn.classList.add('bg-blue-600','text-white'); btn.classList.remove('text-gray-400'); }
+    renderEvolucion();
+}
+
+function renderEvolucion() {
+    let snapshots = _getSnapshots();
+    if (snapshots.length === 0) {
+        const ctx = document.getElementById('grafico-evolucion')?.getContext('2d');
+        if (ctx) {
+            const canvas = ctx.canvas;
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            ctx.fillStyle = '#6b7280';
+            ctx.font = '12px sans-serif';
+            ctx.textAlign = 'center';
+            ctx.fillText('Sin datos aún — presioná 💾 Guardar para registrar el valor actual', canvas.width / 2, canvas.height / 2);
+        }
+        document.getElementById('evo-stats').innerHTML = '';
+        return;
+    }
+
+    // Filtrar por rango
+    const hoy = new Date();
+    const filtro = { '1m': 31, '3m': 92, 'all': 9999 };
+    const dias = filtro[rangoEvo] || 31;
+    const desde = new Date(hoy); desde.setDate(desde.getDate() - dias);
+    const desdeStr = desde.toISOString().substring(0, 10);
+    const filtered = snapshots.filter(s => s.fecha >= desdeStr);
+    if (filtered.length === 0) { renderEvolucion_empty(); return; }
+
+    const labels = filtered.map(s => {
+        const d = new Date(s.fecha + 'T12:00:00');
+        return d.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit' });
+    });
+    const valores = filtered.map(s => s.valor);
+    const primerValor = valores[0];
+    const ultimoValor = valores[valores.length - 1];
+    const cambio      = primerValor > 0 ? ((ultimoValor - primerValor) / primerValor * 100) : 0;
+    const colorLinea  = cambio >= 0 ? '#22c55e' : '#ef4444';
+
+    const ctx = document.getElementById('grafico-evolucion').getContext('2d');
+    if (chartEvolucion) chartEvolucion.destroy();
+    chartEvolucion = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels,
+            datasets: [{
+                data: valores,
+                borderColor: colorLinea,
+                backgroundColor: colorLinea + '18',
+                borderWidth: 2,
+                pointRadius: filtered.length > 30 ? 0 : 3,
+                pointHoverRadius: 5,
+                fill: true,
+                tension: 0.3,
+            }]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: ctx => ` $${ctx.raw.toLocaleString(undefined, {minimumFractionDigits:2})}`,
+                    }
+                }
+            },
+            scales: {
+                x: { ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 8 }, grid: { color: '#1f2937' } },
+                y: {
+                    ticks: { color: '#6b7280', font: { size: 10 }, callback: v => `$${(v/1000).toFixed(0)}k` },
+                    grid: { color: '#1f2937' }
+                }
+            }
+        }
+    });
+
+    // Stats
+    const maxVal = Math.max(...valores);
+    const minVal = Math.min(...valores);
+    document.getElementById('evo-stats').innerHTML = `
+        <div class="bg-gray-900/60 rounded-xl p-2 border border-gray-700">
+            <p class="text-gray-500 text-[9px] uppercase mb-1">Actual</p>
+            <p class="text-white font-mono font-bold">$${ultimoValor.toLocaleString(undefined,{minimumFractionDigits:2})}</p>
+        </div>
+        <div class="bg-gray-900/60 rounded-xl p-2 border border-gray-700">
+            <p class="text-gray-500 text-[9px] uppercase mb-1">Cambio</p>
+            <p class="font-mono font-bold ${cambio >= 0 ? 'text-green-400' : 'text-red-400'}">${cambio >= 0 ? '+' : ''}${cambio.toFixed(2)}%</p>
+        </div>
+        <div class="bg-gray-900/60 rounded-xl p-2 border border-gray-700">
+            <p class="text-gray-500 text-[9px] uppercase mb-1">Máximo</p>
+            <p class="text-green-400 font-mono font-bold">$${maxVal.toLocaleString(undefined,{minimumFractionDigits:2})}</p>
+        </div>
+        <div class="bg-gray-900/60 rounded-xl p-2 border border-gray-700">
+            <p class="text-gray-500 text-[9px] uppercase mb-1">Mínimo</p>
+            <p class="text-red-400 font-mono font-bold">$${minVal.toLocaleString(undefined,{minimumFractionDigits:2})}</p>
+        </div>`;
+}
+
+function renderEvolucion_empty() {
+    document.getElementById('evo-stats').innerHTML = '';
+    if (chartEvolucion) { chartEvolucion.destroy(); chartEvolucion = null; }
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// COMPARAR TICKERS
+// ═══════════════════════════════════════════════════════════════════════════
+let cmpTickers  = [];
+let cmpPeriodo  = '1mo';
+let chartCmp    = null;
+const CMP_COLORS = ['#3b82f6','#10b981','#f59e0b','#ef4444','#8b5cf6','#06b6d4'];
+
+function abrirComparar(tickerInicial) {
+    cmpTickers = tickerInicial ? [tickerInicial.toUpperCase()] : [];
+    renderCmpChips();
+    if (cmpTickers.length) cargarComparacion();
+    document.getElementById('modal-comparar').classList.remove('hidden');
+}
+
+function agregarTickerComparacion() {
+    const input = document.getElementById('cmp-input');
+    const t = input.value.trim().toUpperCase();
+    if (!t) return;
+    if (cmpTickers.includes(t)) { input.value = ''; return; }
+    if (cmpTickers.length >= 4) { input.classList.add('ring-2','ring-red-500'); setTimeout(() => input.classList.remove('ring-2','ring-red-500'), 1000); return; }
+    cmpTickers.push(t);
+    input.value = '';
+    renderCmpChips();
+    cargarComparacion();
+}
+
+function quitarTickerComparacion(t) {
+    cmpTickers = cmpTickers.filter(x => x !== t);
+    renderCmpChips();
+    if (cmpTickers.length) cargarComparacion();
+    else {
+        if (chartCmp) { chartCmp.destroy(); chartCmp = null; }
+        document.getElementById('cmp-stats').innerHTML = '';
+    }
+}
+
+function limpiarComparacion() {
+    cmpTickers = [];
+    renderCmpChips();
+    if (chartCmp) { chartCmp.destroy(); chartCmp = null; }
+    document.getElementById('cmp-stats').innerHTML = '';
+}
+
+function renderCmpChips() {
+    document.getElementById('cmp-chips').innerHTML = cmpTickers.map((t, i) => `
+        <span class="flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-bold border"
+              style="color:${CMP_COLORS[i]};border-color:${CMP_COLORS[i]}40;background:${CMP_COLORS[i]}18">
+            ${t}
+            <button onclick="quitarTickerComparacion('${t}')" class="hover:opacity-60 transition-opacity text-sm leading-none">&times;</button>
+        </span>
+    `).join('');
+}
+
+function cambiarPeriodoCmp(p) {
+    cmpPeriodo = p;
+    document.querySelectorAll('.cmp-btn').forEach(b => { b.classList.remove('bg-blue-600','text-white'); b.classList.add('text-gray-400'); });
+    const btn = document.getElementById(`cmp-btn-${p}`);
+    if (btn) { btn.classList.add('bg-blue-600','text-white'); btn.classList.remove('text-gray-400'); }
+    if (cmpTickers.length) cargarComparacion();
+}
+
+async function cargarComparacion() {
+    if (!cmpTickers.length) return;
+    const statsDiv = document.getElementById('cmp-stats');
+    statsDiv.innerHTML = '<p class="col-span-4 text-gray-500 text-xs text-center">Cargando...</p>';
+
+    const datasets = [];
+    const statsItems = [];
+
+    await Promise.allSettled(cmpTickers.map(async (t, i) => {
+        try {
+            const data = await fetch(
+                `https://finanzasluciano.onrender.com/velas/${t}?period=${cmpPeriodo}`
+            ).then(r => r.json());
+            if (!data || !data.length) return;
+
+            const closes = data.map(d => d.close);
+            const labels = data.map(d => d.time);
+            const base   = closes[0];
+            const norm   = closes.map(c => parseFloat(((c / base - 1) * 100).toFixed(2)));
+            const ultimo = norm[norm.length - 1];
+
+            datasets.push({ ticker: t, labels, data: norm, color: CMP_COLORS[i], ultimo, precioActual: closes[closes.length - 1] });
+            statsItems.push({ t, ultimo, color: CMP_COLORS[i], precio: closes[closes.length - 1] });
+        } catch {}
+    }));
+
+    if (!datasets.length) {
+        statsDiv.innerHTML = '<p class="col-span-4 text-red-400 text-xs text-center">Error al cargar datos</p>';
+        return;
+    }
+
+    // Alinear todos al conjunto de labels más largo
+    const allLabels = datasets.sort((a, b) => b.labels.length - a.labels.length)[0].labels;
+
+    const ctx = document.getElementById('grafico-comparar').getContext('2d');
+    if (chartCmp) chartCmp.destroy();
+    chartCmp = new Chart(ctx, {
+        type: 'line',
+        data: {
+            labels: allLabels,
+            datasets: datasets.map(d => ({
+                label: d.ticker,
+                data: d.data,
+                borderColor: d.color,
+                backgroundColor: 'transparent',
+                borderWidth: 2,
+                pointRadius: 0,
+                pointHoverRadius: 4,
+                tension: 0.2,
+            }))
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            interaction: { mode: 'index', intersect: false },
+            plugins: {
+                legend: { labels: { color: '#9ca3af', font: { size: 11 }, boxWidth: 12 } },
+                tooltip: { callbacks: { label: c => ` ${c.dataset.label}: ${c.raw > 0 ? '+' : ''}${c.raw}%` } }
+            },
+            scales: {
+                x: { ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 8 }, grid: { color: '#1f2937' } },
+                y: {
+                    ticks: { color: '#6b7280', font: { size: 10 }, callback: v => `${v > 0 ? '+' : ''}${v}%` },
+                    grid: { color: '#1f2937' }
+                }
+            }
+        }
+    });
+
+    statsDiv.innerHTML = statsItems.map(s => `
+        <div class="rounded-xl p-2 border" style="border-color:${s.color}40;background:${s.color}10">
+            <p class="font-bold text-xs" style="color:${s.color}">${s.t}</p>
+            <p class="font-mono font-bold text-sm ${s.ultimo >= 0 ? 'text-green-400' : 'text-red-400'}">${s.ultimo >= 0 ? '+' : ''}${s.ultimo}%</p>
+            <p class="text-gray-500 text-[9px]">$${s.precio.toFixed(2)}</p>
+        </div>
+    `).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// CEDEARs y ACTIVOS ARGENTINOS — soporte en renderTabla y seleccionarActivo
+// ═══════════════════════════════════════════════════════════════════════════
+const CEDEAR_TICKERS = new Set([
+    'GGAL','YPFD','PAMP','BMA','SUPV','BYMA','HARG','TECO2','TXAR','ALUA',
+    'BBAR','CRES','COME','CVH','EDNS','GARO','IRSA','LOMA','MOLI','MIRG',
+    'PATA','RIGO','SAMI','SEMI','TRAN','VALO','VIST','SADE','BPAT',
+]);
+const BONO_TICKERS = new Set(['AL29','AL30','AL35','AL41','GD29','GD30','GD35','GD38','GD41','GD46']);
+
+function esCedearTicker(t) { return CEDEAR_TICKERS.has(t.toUpperCase().replace('.BA','').replace('-BA','')); }
+function esBonoArgentino(t) { return BONO_TICKERS.has(t.toUpperCase()); }
+
+// Agrego badge CEDEAR y bono en la tabla junto al badge Crypto existente
+function renderTabla() {
+    const tabla = document.getElementById('tabla-cartera');
+    let vTotal = 0, gLatente = 0, gRealizado = 0;
+    tabla.innerHTML = '';
+
+    datosActuales.forEach(item => {
+        vTotal     += item.cantidad * item.precio_actual;
+        gLatente   += item.ganancia;
+        gRealizado += item.pnl_realizado || 0;
+        const color   = item.ganancia >= 0 ? 'text-green-400' : 'text-red-400';
+        const pnlSign = item.ganancia >= 0 ? '+' : '';
+
+        let badge = '';
+        if (esCryptoTicker(item.ticker))   badge = '<span class="text-[9px] bg-orange-500/20 text-orange-400 px-1 rounded">\u20bf</span>';
+        else if (esCedearTicker(item.ticker)) badge = '<span class="text-[9px] bg-cyan-500/20 text-cyan-400 px-1 rounded">AR</span>';
+        else if (esBonoArgentino(item.ticker)) badge = '<span class="text-[9px] bg-yellow-500/20 text-yellow-400 px-1 rounded">BON</span>';
+
+        tabla.innerHTML += `
+            <tr class="hover:bg-gray-700/50 cursor-pointer border-b border-gray-800 transition-colors"
+                onclick="seleccionarActivo('${item.ticker}')">
+                <td class="py-3 px-2">
+                    <div class="flex items-center gap-2">
+                        ${logoImgHtml(item.ticker)}
+                        <span class="font-bold text-blue-400">${item.ticker}</span>
+                        ${badge}
+                    </div>
+                </td>
+                <td class="text-gray-300">${item.cantidad}</td>
+                <td class="font-mono">$${item.precio_actual.toFixed(2)}</td>
+                <td class="text-right font-bold font-mono ${color}">
+                    ${pnlSign}$${item.ganancia.toLocaleString(undefined, {minimumFractionDigits:2})}
+                </td>
+                <td class="text-center whitespace-nowrap">
+                    <button onclick="event.stopPropagation(); abrirComparar('${item.ticker}')"
+                            class="text-[10px] bg-blue-900 hover:bg-blue-700 px-2 py-1 rounded font-bold mr-1 transition-all" title="Comparar">
+                        \u2261
+                    </button>
+                    <button onclick="event.stopPropagation(); abrirModalVenta('${item.ticker}')"
+                            class="text-[10px] bg-red-900 hover:bg-red-700 px-2 py-1 rounded font-bold mr-1 transition-all">
+                        Vender
+                    </button>
+                    <button onclick="event.stopPropagation(); eliminarActivo('${item.ticker}')"
+                            class="text-[10px] bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded transition-all">
+                        \ud83d\uddd1\ufe0f
+                    </button>
+                </td>
+            </tr>`;
+    });
+
+    document.getElementById('valor-total').innerText =
+        `$${vTotal.toLocaleString(undefined, {minimumFractionDigits:2})}`;
+
+    const elLat  = document.getElementById('ganancia-total');
+    elLat.innerText = `$${gLatente.toLocaleString(undefined, {minimumFractionDigits:2})}`;
+    elLat.className = `text-2xl font-mono mt-1 font-bold ${gLatente >= 0 ? 'text-green-400' : 'text-red-400'}`;
+
+    const elReal = document.getElementById('pnl-realizado-total');
+    elReal.innerText = `$${gRealizado.toLocaleString(undefined, {minimumFractionDigits:2})}`;
+    elReal.className = `text-2xl font-mono mt-1 font-bold ${gRealizado >= 0 ? 'text-yellow-400' : 'text-red-400'}`;
+
+    // Guardar snapshot automático cuando los precios reales estén disponibles
+    if (vTotal > 0) guardarSnapshot(vTotal);
+}
+
+// Verificar alertas cada 5 minutos (no en el arranque inmediato)
+setTimeout(() => {
+    verificarAlertas();
+    setInterval(verificarAlertas, 300000);
+}, 15000);
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODAL — HISTORIAL DE OPERACIONES
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="modal-historial" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+  <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+    <div class="flex justify-between items-center p-5 border-b border-gray-700 sticky top-0 bg-gray-800 rounded-t-2xl z-10 shrink-0">
+      <div>
+        <h2 class="text-white font-bold text-lg">📋 Historial de Operaciones</h2>
+        <p class="text-gray-400 text-xs mt-0.5">Todas las compras y ventas registradas</p>
+      </div>
+      <div class="flex items-center gap-3">
+        <select id="hist-filtro" onchange="renderHistorial()" class="bg-gray-700 text-gray-200 text-xs rounded-lg px-3 py-1.5 outline-none border border-gray-600">
+          <option value="">Todos los tickers</option>
+        </select>
+        <button onclick="cerrarModal('modal-historial')" class="text-gray-400 hover:text-white text-2xl font-bold leading-none">&times;</button>
+      </div>
+    </div>
+    <div class="overflow-y-auto flex-1 p-4">
+      <table class="w-full text-xs text-left">
+        <thead class="text-gray-500 uppercase border-b border-gray-700 sticky top-0 bg-gray-800">
+          <tr>
+            <th class="pb-2 pr-3">Fecha</th>
+            <th class="pb-2 pr-3">Ticker</th>
+            <th class="pb-2 pr-3">Tipo</th>
+            <th class="pb-2 pr-3 text-right">Cantidad</th>
+            <th class="pb-2 pr-3 text-right">Precio</th>
+            <th class="pb-2 text-right">Total</th>
+          </tr>
+        </thead>
+        <tbody id="historial-tabla" class="divide-y divide-gray-800"></tbody>
+      </table>
+      <p id="historial-vacio" class="hidden text-gray-500 italic text-center py-8">No hay operaciones registradas.</p>
+    </div>
+    <div class="p-4 border-t border-gray-700 flex justify-between items-center shrink-0">
+      <span id="historial-resumen" class="text-gray-400 text-xs"></span>
+      <button onclick="limpiarHistorialConfirm()" class="text-xs bg-red-900 hover:bg-red-700 px-3 py-1.5 rounded-lg font-bold transition-all">🗑 Borrar todo</button>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODAL — ALERTAS DE PRECIO
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="modal-alertas" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+  <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-md max-h-[85vh] flex flex-col">
+    <div class="flex justify-between items-center p-5 border-b border-gray-700 sticky top-0 bg-gray-800 rounded-t-2xl z-10 shrink-0">
+      <div>
+        <h2 class="text-white font-bold text-lg">🔔 Alertas de Precio</h2>
+        <p class="text-gray-400 text-xs mt-0.5">Notificación cuando un activo supera el umbral</p>
+      </div>
+      <button onclick="cerrarModal('modal-alertas')" class="text-gray-400 hover:text-white text-2xl font-bold leading-none">&times;</button>
+    </div>
+    <div class="overflow-y-auto flex-1 p-5 space-y-4">
+      <!-- Crear alerta -->
+      <div class="bg-gray-900/60 rounded-xl p-4 border border-gray-700">
+        <p class="text-gray-400 text-[10px] uppercase tracking-widest mb-3">Nueva Alerta</p>
+        <div class="flex gap-2 mb-2">
+          <input id="alerta-ticker" type="text" placeholder="Ticker" maxlength="10"
+                 class="w-28 bg-gray-700 rounded-lg p-2 text-white text-sm uppercase outline-none focus:ring-2 focus:ring-yellow-500">
+          <select id="alerta-tipo" class="flex-1 bg-gray-700 text-gray-200 text-sm rounded-lg px-2 py-2 outline-none border border-gray-600">
+            <option value="sube_a">Sube a ≥</option>
+            <option value="baja_a">Baja a ≤</option>
+            <option value="sube_pct">Sube % en el día</option>
+            <option value="baja_pct">Baja % en el día</option>
+          </select>
+        </div>
+        <div class="flex gap-2">
+          <input id="alerta-valor" type="number" step="any" placeholder="Valor" min="0"
+                 class="flex-1 bg-gray-700 rounded-lg p-2 text-white text-sm outline-none focus:ring-2 focus:ring-yellow-500">
+          <button onclick="agregarAlerta()" class="bg-yellow-600 hover:bg-yellow-500 px-4 py-2 rounded-lg font-bold text-sm transition-all">+ Agregar</button>
+        </div>
+      </div>
+      <!-- Permiso notificaciones -->
+      <div id="alerta-permiso-banner" class="hidden bg-yellow-900/40 border border-yellow-700/50 rounded-xl p-3 text-xs text-yellow-300 flex items-center justify-between gap-3">
+        <span>⚠️ Habilitar notificaciones del navegador para recibir alertas</span>
+        <button onclick="pedirPermisoNotificaciones()" class="bg-yellow-600 hover:bg-yellow-500 px-3 py-1 rounded-lg font-bold shrink-0">Habilitar</button>
+      </div>
+      <!-- Lista de alertas activas -->
+      <div>
+        <p class="text-gray-500 text-[10px] uppercase tracking-widest mb-2">Alertas Activas</p>
+        <div id="alertas-lista" class="space-y-2">
+          <p class="text-gray-600 italic text-xs text-center py-2">Sin alertas configuradas</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODAL — COMPARAR TICKERS
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="modal-comparar" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+  <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[90vh] flex flex-col">
+    <div class="flex justify-between items-center p-5 border-b border-gray-700 sticky top-0 bg-gray-800 rounded-t-2xl z-10 shrink-0">
+      <div>
+        <h2 class="text-white font-bold text-lg">⚖️ Comparar Tickers</h2>
+        <p class="text-gray-400 text-xs mt-0.5">Rendimiento relativo base 100 — hasta 4 activos</p>
+      </div>
+      <button onclick="cerrarModal('modal-comparar')" class="text-gray-400 hover:text-white text-2xl font-bold leading-none">&times;</button>
+    </div>
+    <div class="p-5 shrink-0 border-b border-gray-700">
+      <div class="flex gap-2 flex-wrap">
+        <input id="cmp-input" type="text" placeholder="Agregar ticker (Enter)" maxlength="10"
+               class="flex-1 min-w-[120px] bg-gray-700 rounded-lg p-2 text-white uppercase text-sm outline-none focus:ring-2 focus:ring-blue-500"
+               onkeydown="if(event.key==='Enter') agregarTickerComparacion()">
+        <div class="flex gap-1 bg-gray-700 rounded-lg p-1">
+          <button id="cmp-btn-1mo" onclick="cambiarPeriodoCmp('1mo')" class="cmp-btn px-2 py-1 text-xs rounded font-bold bg-blue-600 text-white transition-all">1M</button>
+          <button id="cmp-btn-3mo" onclick="cambiarPeriodoCmp('3mo')" class="cmp-btn px-2 py-1 text-xs rounded font-bold text-gray-400 hover:text-white transition-all">3M</button>
+          <button id="cmp-btn-1y"  onclick="cambiarPeriodoCmp('1y')"  class="cmp-btn px-2 py-1 text-xs rounded font-bold text-gray-400 hover:text-white transition-all">1A</button>
+        </div>
+        <button onclick="limpiarComparacion()" class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-2 rounded-lg font-bold transition-all">Limpiar</button>
+      </div>
+      <div id="cmp-chips" class="flex flex-wrap gap-2 mt-3"></div>
+    </div>
+    <div class="flex-1 p-5 overflow-hidden">
+      <div style="height:300px;"><canvas id="grafico-comparar"></canvas></div>
+      <div id="cmp-stats" class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs"></div>
+    </div>
+  </div>
+</div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      FOOTER — DERECHOS RESERVADOS
