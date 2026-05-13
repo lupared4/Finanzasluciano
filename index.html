@@ -4,6 +4,20 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Terminal de Inversiones - Luciano</title>
+
+    <!-- PWA -->
+    <link rel="manifest" href="manifest.json">
+    <meta name="theme-color" content="#1d4ed8">
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+    <meta name="apple-mobile-web-app-title" content="Terminal">
+    <meta name="description" content="Tu portafolio de inversiones. Tu control. Tu futuro.">
+    <!-- Open Graph -->
+    <meta property="og:title" content="Terminal de Inversiones">
+    <meta property="og:description" content="Portafolio personal de inversiones con análisis IA">
+    <meta property="og:type" content="website">
+
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
@@ -436,9 +450,15 @@
                     class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded-full font-bold transition-all flex items-center gap-1.5 whitespace-nowrap">
                 📋 Historial
             </button>
-            <button onclick="abrirAlertas()"
-                    class="text-xs bg-yellow-700 hover:bg-yellow-600 px-3 py-1.5 rounded-full font-bold transition-all flex items-center gap-1.5 whitespace-nowrap">
+            <button id="btn-alertas" onclick="abrirAlertas()"
+                    class="relative text-xs bg-yellow-700 hover:bg-yellow-600 px-3 py-1.5 rounded-full font-bold transition-all flex items-center gap-1.5 whitespace-nowrap">
                 🔔 Alertas
+                <span id="badge-alertas" class="hidden absolute -top-1 -right-1 w-3 h-3 bg-red-500 rounded-full border border-gray-900 animate-pulse"></span>
+            </button>
+            <button onclick="abrirWatchlist()"
+                    class="text-xs bg-teal-700 hover:bg-teal-600 px-3 py-1.5 rounded-full font-bold transition-all flex items-center gap-1.5 whitespace-nowrap">
+                👁 Watchlist
+                <span id="badge-watchlist" class="hidden bg-teal-500 text-white text-[9px] rounded-full px-1 font-bold leading-none"></span>
             </button>
             <button onclick="document.getElementById('modal-perfil').classList.remove('hidden')"
                     class="text-xs bg-purple-700 hover:bg-purple-600 px-3 py-1.5 rounded-full font-bold transition-all flex items-center gap-1.5 whitespace-nowrap">
@@ -1014,6 +1034,20 @@
         </div>
         <div style="height:200px;"><canvas id="grafico-evolucion"></canvas></div>
         <div id="evo-stats" class="mt-3 grid grid-cols-2 sm:grid-cols-4 gap-2 text-center text-xs"></div>
+    </div>
+
+    <!-- ── ROW 3c: Watchlist ──────────────────────────────────────────── -->
+    <div id="panel-watchlist" class="mt-6 bg-gray-800 p-4 sm:p-5 rounded-xl border border-gray-700 shadow-lg">
+        <div class="flex flex-wrap justify-between items-center mb-4 gap-2">
+            <div>
+                <h3 class="text-teal-300 font-bold text-sm uppercase tracking-widest">👁 Watchlist</h3>
+                <p class="text-gray-500 text-[10px] mt-0.5">Activos que seguís sin posición</p>
+            </div>
+            <button onclick="abrirWatchlist()" class="text-xs bg-gray-700 hover:bg-gray-600 px-3 py-1.5 rounded-lg font-bold transition-all">+ Gestionar</button>
+        </div>
+        <div id="watchlist-cards" class="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-6 gap-3">
+            <p class="col-span-full text-gray-600 italic text-xs text-center py-4">Agregá activos con el botón 👁 Watchlist</p>
+        </div>
     </div>
 
     <!-- ── ROW 4: Top Movers + IA Tendencias ──────────────────────────────── -->
@@ -2727,9 +2761,7 @@ async function arrancar() {
     setTimeout(() => cargarRiesgoCartera(),    10000);  // 10s después (batch 1y)
 }
 
-arrancar();
-setInterval(() => { cargarDatos().then(() => { precargarLogos(); cargarRiesgoCartera(); }); }, 60000);
-
+// arrancar() y setInterval se ejecutan al final del script (sección WATCHLIST)
 // ═══════════════════════════════════════════════════════════════════════════
 // HISTORIAL DE OPERACIONES
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3250,6 +3282,10 @@ function renderTabla() {
                             class="text-[10px] bg-blue-900 hover:bg-blue-700 px-2 py-1 rounded font-bold mr-1 transition-all" title="Comparar">
                         \u2261
                     </button>
+                    <button onclick="event.stopPropagation(); agregarWatchlistDesdeTabla('${item.ticker}')"
+                            class="text-[10px] bg-teal-900 hover:bg-teal-700 px-2 py-1 rounded font-bold mr-1 transition-all" title="Agregar a Watchlist">
+                        👁
+                    </button>
                     <button onclick="event.stopPropagation(); abrirModalVenta('${item.ticker}')"
                             class="text-[10px] bg-red-900 hover:bg-red-700 px-2 py-1 rounded font-bold mr-1 transition-all">
                         Vender
@@ -3282,7 +3318,230 @@ setTimeout(() => {
     verificarAlertas();
     setInterval(verificarAlertas, 300000);
 }, 15000);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// KEEP-ALIVE — ping al backend cada 13 min para evitar cold start de Render
+// ═══════════════════════════════════════════════════════════════════════════
+(function keepAlive() {
+    const INTERVAL = 13 * 60 * 1000; // 13 minutos
+    const ping = () => fetch('https://finanzasluciano.onrender.com/precio/AAPL', {
+        signal: AbortSignal.timeout(10000)
+    }).catch(() => {});
+    // Primera llamada a los 5 minutos (no en arranque)
+    setTimeout(() => { ping(); setInterval(ping, INTERVAL); }, 5 * 60 * 1000);
+})();
+
+// ═══════════════════════════════════════════════════════════════════════════
+// BADGE DE ALERTAS ACTIVAS
+// ═══════════════════════════════════════════════════════════════════════════
+function actualizarBadgeAlertas() {
+    const activas = _getAlertas().filter(a => a.activa).length;
+    const badge   = document.getElementById('badge-alertas');
+    if (!badge) return;
+    if (activas > 0) badge.classList.remove('hidden');
+    else badge.classList.add('hidden');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// WATCHLIST
+// ═══════════════════════════════════════════════════════════════════════════
+function _getWatchlist()   { try { return JSON.parse(localStorage.getItem('watchlist') || '[]'); } catch { return []; } }
+function _saveWatchlist(w) { localStorage.setItem('watchlist', JSON.stringify(w)); }
+
+function actualizarBadgeWatchlist() {
+    const n     = _getWatchlist().length;
+    const badge = document.getElementById('badge-watchlist');
+    if (!badge) return;
+    if (n > 0) { badge.textContent = n; badge.classList.remove('hidden'); }
+    else badge.classList.add('hidden');
+}
+
+function abrirWatchlist() {
+    renderWatchlistModal();
+    document.getElementById('modal-watchlist').classList.remove('hidden');
+    document.getElementById('wl-input').focus();
+}
+
+function agregarWatchlist() {
+    const input  = document.getElementById('wl-input');
+    const ticker = input.value.trim().toUpperCase().replace(/\s+/g, '');
+    if (!ticker) return;
+
+    const wl = _getWatchlist();
+    if (wl.find(w => w.ticker === ticker)) {
+        input.classList.add('ring-2', 'ring-yellow-500');
+        setTimeout(() => input.classList.remove('ring-2', 'ring-yellow-500'), 1200);
+        input.value = '';
+        return;
+    }
+    wl.push({ ticker, agregado: new Date().toISOString() });
+    _saveWatchlist(wl);
+    input.value = '';
+    actualizarBadgeWatchlist();
+    renderWatchlistModal();
+    cargarWatchlistCards();
+}
+
+function agregarWatchlistDesdeTabla(ticker) {
+    const wl = _getWatchlist();
+    if (wl.find(w => w.ticker === ticker)) return; // ya está
+    wl.push({ ticker, agregado: new Date().toISOString() });
+    _saveWatchlist(wl);
+    actualizarBadgeWatchlist();
+    cargarWatchlistCards();
+    // Feedback visual: breve toast
+    const btn = document.querySelector(`[onclick*="agregarWatchlistDesdeTabla('${ticker}')"]`);
+    if (btn) { btn.textContent = '✓'; btn.classList.add('bg-green-700'); setTimeout(() => { btn.textContent = '👁'; btn.classList.remove('bg-green-700'); }, 1500); }
+}
+
+function quitarWatchlist(ticker) {
+    _saveWatchlist(_getWatchlist().filter(w => w.ticker !== ticker));
+    actualizarBadgeWatchlist();
+    renderWatchlistModal();
+    cargarWatchlistCards();
+}
+
+function renderWatchlistModal() {
+    const wl   = _getWatchlist();
+    const cont = document.getElementById('watchlist-lista');
+    if (!cont) return;
+
+    if (wl.length === 0) {
+        cont.innerHTML = '<p class="text-gray-500 italic text-center py-8 text-sm">Sin activos en watchlist</p>';
+        return;
+    }
+
+    cont.innerHTML = wl.map(w => {
+        const cached = logoCache[w.ticker];
+        const imgHtml = cached
+            ? `<img src="${cached}" class="w-8 h-8 rounded-full object-cover bg-gray-700 shrink-0" onerror="this.style.display='none'">`
+            : `<span class="inline-flex items-center justify-center w-8 h-8 rounded-full bg-teal-800 text-white text-[10px] font-bold shrink-0">${w.ticker.substring(0,2)}</span>`;
+
+        return `
+        <div id="wl-row-${w.ticker}" class="flex items-center justify-between bg-gray-900/60 rounded-xl px-3 py-2.5 border border-gray-700 hover:border-teal-700/50 transition-all cursor-pointer"
+             onclick="seleccionarActivo('${w.ticker}'); cerrarModal('modal-watchlist');">
+            <div class="flex items-center gap-2.5 min-w-0">
+                ${imgHtml}
+                <div class="min-w-0">
+                    <p class="font-bold text-teal-400 text-sm">${w.ticker}</p>
+                    <p id="wl-precio-${w.ticker}" class="text-gray-400 text-xs font-mono">—</p>
+                </div>
+            </div>
+            <div class="flex items-center gap-3 shrink-0">
+                <div class="text-right">
+                    <p id="wl-cambio-${w.ticker}" class="text-xs font-mono font-bold text-gray-500">—</p>
+                </div>
+                <button onclick="event.stopPropagation(); quitarWatchlist('${w.ticker}')"
+                        class="text-gray-600 hover:text-red-400 transition-colors text-lg leading-none">&times;</button>
+            </div>
+        </div>`;
+    }).join('');
+
+    // Cargar precios en background
+    wl.forEach(w => _fetchWatchlistPrecio(w.ticker));
+}
+
+async function _fetchWatchlistPrecio(ticker) {
+    try {
+        const d = await fetch(`https://finanzasluciano.onrender.com/precio/${ticker}`, { signal: AbortSignal.timeout(15000) }).then(r => r.json());
+        const precioEl  = document.getElementById(`wl-precio-${ticker}`);
+        const cambioEl  = document.getElementById(`wl-cambio-${ticker}`);
+        if (precioEl && d.precio > 0) {
+            precioEl.textContent = `$${d.precio.toFixed(2)}`;
+        }
+        if (cambioEl && d.cambio_pct != null) {
+            const pct = d.cambio_pct;
+            cambioEl.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+            cambioEl.className = `text-xs font-mono font-bold ${pct >= 0 ? 'text-green-400' : 'text-red-400'}`;
+        }
+    } catch {}
+}
+
+async function cargarWatchlistCards() {
+    const wl   = _getWatchlist();
+    const cont = document.getElementById('watchlist-cards');
+    if (!cont) return;
+
+    if (wl.length === 0) {
+        cont.innerHTML = '<p class="col-span-full text-gray-600 italic text-xs text-center py-4">Agregá activos con el botón 👁 Watchlist</p>';
+        return;
+    }
+
+    // Render inmediato con skeleton
+    cont.innerHTML = wl.map(w => `
+        <div id="wl-card-${w.ticker}" onclick="seleccionarActivo('${w.ticker}')"
+             class="bg-gray-900/60 border border-gray-700 hover:border-teal-600/50 rounded-xl p-3 cursor-pointer transition-all group">
+            <div class="flex items-center gap-2 mb-2">
+                ${logoImgHtml(w.ticker)}
+                <span class="font-bold text-teal-400 text-sm group-hover:text-teal-300 transition-colors">${w.ticker}</span>
+            </div>
+            <p id="wl-card-precio-${w.ticker}" class="text-white font-mono font-bold text-sm">—</p>
+            <p id="wl-card-cambio-${w.ticker}" class="text-gray-500 text-xs font-mono mt-0.5">—</p>
+        </div>
+    `).join('');
+
+    // Fetch precios en paralelo
+    await Promise.allSettled(wl.map(async w => {
+        try {
+            const d = await fetch(`https://finanzasluciano.onrender.com/precio/${w.ticker}`, { signal: AbortSignal.timeout(20000) }).then(r => r.json());
+            const p = document.getElementById(`wl-card-precio-${w.ticker}`);
+            const c = document.getElementById(`wl-card-cambio-${w.ticker}`);
+            if (p && d.precio > 0) p.textContent = `$${d.precio.toFixed(2)}`;
+            if (c && d.cambio_pct != null) {
+                const pct = d.cambio_pct;
+                c.textContent = `${pct >= 0 ? '+' : ''}${pct.toFixed(2)}%`;
+                c.className = `text-xs font-mono mt-0.5 font-bold ${pct >= 0 ? 'text-green-400' : 'text-red-400'}`;
+            }
+        } catch {}
+    }));
+}
+
+// Llamar al arrancar y en cada refresh
+arrancar();
+setInterval(() => {
+    cargarDatos().then(() => { precargarLogos(); cargarRiesgoCartera(); });
+    if (_getWatchlist().length > 0) cargarWatchlistCards();
+    actualizarBadgeAlertas();
+}, 60000);
+
+// Init badges y watchlist al cargar
+actualizarBadgeAlertas();
+actualizarBadgeWatchlist();
+setTimeout(() => cargarWatchlistCards(), 3000); // 3s después del arranque
 </script>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODAL — WATCHLIST
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="modal-watchlist" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+  <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+    <div class="flex justify-between items-center p-5 border-b border-gray-700 sticky top-0 bg-gray-800 rounded-t-2xl z-10 shrink-0">
+      <div>
+        <h2 class="text-white font-bold text-lg">👁 Watchlist</h2>
+        <p class="text-gray-400 text-xs mt-0.5">Activos que seguís · precios actualizados en tiempo real</p>
+      </div>
+      <button onclick="cerrarModal('modal-watchlist')" class="text-gray-400 hover:text-white text-2xl font-bold leading-none">&times;</button>
+    </div>
+    <div class="p-4 border-b border-gray-700 shrink-0">
+      <div class="flex gap-2">
+        <div class="relative flex-1">
+          <input id="wl-input" type="text" placeholder="Agregar ticker (ej: AAPL, BTC, GGAL)" maxlength="12"
+                 class="w-full bg-gray-700 rounded-lg p-2.5 text-white uppercase text-sm outline-none focus:ring-2 focus:ring-teal-500 pr-8"
+                 oninput="this.value=this.value.toUpperCase()"
+                 onkeydown="if(event.key==='Enter') agregarWatchlist()">
+        </div>
+        <button onclick="agregarWatchlist()" class="bg-teal-600 hover:bg-teal-500 px-4 py-2 rounded-lg font-bold text-sm transition-all shrink-0">
+          + Agregar
+        </button>
+      </div>
+    </div>
+    <div class="overflow-y-auto flex-1 p-3">
+      <div id="watchlist-lista" class="space-y-2">
+        <p class="text-gray-500 italic text-center py-8 text-sm">Sin activos en watchlist</p>
+      </div>
+    </div>
+  </div>
+</div>
 
 <!-- ═══════════════════════════════════════════════════════════════════════════
      MODAL — HISTORIAL DE OPERACIONES

@@ -141,8 +141,23 @@ def get_precio_actual(ticker: str) -> float:
 # ─── Precio individual ───────────────────────────────────────────────────────
 @app.get("/precio/{ticker}")
 def obtener_precio(ticker: str):
-    """Retorna el precio actual de un ticker (con caché de 60s)."""
-    return {"ticker": ticker.upper(), "precio": get_precio_actual(ticker)}
+    """Retorna el precio actual de un ticker con cambio % del día (caché 60s)."""
+    t = ticker.upper().strip()
+    cached = _cache_get(_price_cache, t, 60)
+    if cached is not None and isinstance(cached, dict) and 'cambio_pct' in cached:
+        return cached
+    try:
+        tk   = yft(t)
+        fi   = tk.fast_info
+        precio = float(fi.last_price or 0)
+        prev_close = float(getattr(fi, 'previous_close', None) or getattr(fi, 'regularMarketPreviousClose', None) or 0)
+        cambio_pct = round((precio - prev_close) / prev_close * 100, 2) if prev_close > 0 else None
+        result = {"ticker": t, "precio": round(precio, 4), "cambio_pct": cambio_pct}
+        _cache_set(_price_cache, t, result)
+        return result
+    except Exception:
+        precio = get_precio_actual(t)
+        return {"ticker": t, "precio": precio, "cambio_pct": None}
 
 
 # ─── Autocompletado de tickers (proxy Yahoo Finance Search) ──────────────────

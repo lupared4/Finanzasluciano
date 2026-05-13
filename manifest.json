@@ -1,0 +1,27 @@
+{
+  "name": "Terminal de Inversiones",
+  "short_name": "Terminal",
+  "description": "Tu portafolio de inversiones. Tu control. Tu futuro.",
+  "start_url": "/Finanzasluciano/",
+  "scope": "/Finanzasluciano/",
+  "display": "standalone",
+  "background_color": "#111827",
+  "theme_color": "#1d4ed8",
+  "orientation": "any",
+  "icons": [
+    {
+      "src": "https://via.placeholder.com/192/1d4ed8/ffffff?text=TI",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "https://via.placeholder.com/512/1d4ed8/ffffff?text=TI",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["finance", "productivity"],
+  "lang": "es"
+}
