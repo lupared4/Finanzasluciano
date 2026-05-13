@@ -589,6 +589,32 @@ def analisis_ia(ticker: str):
         rec_mean      = float(info.get('recommendationMean') or 3.0)
         rec_key       = info.get('recommendationKey', 'hold') or 'hold'
 
+        # Fallback recommendationMean con recommendations_summary si info no lo trajo
+        if rec_mean == 3.0 and info.get('recommendationMean') is None:
+            try:
+                rs = tk.recommendations_summary
+                if rs is not None and not rs.empty:
+                    row = rs.iloc[-1]
+                    total = sum(int(row.get(c, 0) or 0) for c in ['strongBuy','buy','hold','sell','strongSell'])
+                    if total > 0:
+                        n_analistas = n_analistas or total
+            except Exception:
+                pass
+
+        # Fallback con analyst_price_targets si info no trajo targets
+        if target_mean == 0:
+            try:
+                apt = tk.analyst_price_targets
+                if apt is not None:
+                    apt_d = apt if isinstance(apt, dict) else apt.to_dict()
+                    target_mean = float(apt_d.get('mean') or apt_d.get('targetMeanPrice') or 0)
+                    target_high = float(apt_d.get('high') or apt_d.get('targetHighPrice') or target_high)
+                    target_low  = float(apt_d.get('low')  or apt_d.get('targetLowPrice')  or target_low)
+                    if target_mean and n_analistas == 0:
+                        n_analistas = int(apt_d.get('numberOfAnalysts') or apt_d.get('numberOfAnalystOpinions') or 0)
+            except Exception:
+                pass
+
         upside = ((target_mean - precio_actual) / precio_actual * 100) if precio_actual and target_mean else 0
 
         # Score analistas: recommendationMean 1=Strong Buy→100, 5=Strong Sell→0
