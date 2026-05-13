@@ -2931,18 +2931,21 @@ function cambiarRangoEvo(rango) {
 }
 
 function renderEvolucion() {
+    try {
     let snapshots = _getSnapshots();
     if (snapshots.length === 0) {
-        const ctx = document.getElementById('grafico-evolucion')?.getContext('2d');
-        if (ctx) {
-            const canvas = ctx.canvas;
-            ctx.clearRect(0, 0, canvas.width, canvas.height);
+        const canvasEl = document.getElementById('grafico-evolucion');
+        const statsEl  = document.getElementById('evo-stats');
+        if (!canvasEl || !statsEl) return;
+        const ctx = canvasEl.getContext('2d');
+        if (ctx && canvasEl.width > 0 && canvasEl.height > 0) {
+            ctx.clearRect(0, 0, canvasEl.width, canvasEl.height);
             ctx.fillStyle = '#6b7280';
             ctx.font = '12px sans-serif';
             ctx.textAlign = 'center';
-            ctx.fillText('Sin datos aún — presioná 💾 Guardar para registrar el valor actual', canvas.width / 2, canvas.height / 2);
+            ctx.fillText('Sin datos — presioná 💾 Guardar para registrar el valor actual', canvasEl.width / 2, canvasEl.height / 2);
         }
-        document.getElementById('evo-stats').innerHTML = '';
+        statsEl.innerHTML = '';
         return;
     }
 
@@ -3023,11 +3026,13 @@ function renderEvolucion() {
             <p class="text-gray-500 text-[9px] uppercase mb-1">Mínimo</p>
             <p class="text-red-400 font-mono font-bold">$${minVal.toLocaleString(undefined,{minimumFractionDigits:2})}</p>
         </div>`;
+    } catch(e) { console.warn('renderEvolucion err:', e); }
 }
 
 function renderEvolucion_empty() {
-    document.getElementById('evo-stats').innerHTML = '';
-    if (chartEvolucion) { chartEvolucion.destroy(); chartEvolucion = null; }
+    const statsEl = document.getElementById('evo-stats');
+    if (statsEl) statsEl.innerHTML = '';
+    if (chartEvolucion) { try { chartEvolucion.destroy(); } catch {} chartEvolucion = null; }
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -3243,8 +3248,8 @@ function renderTabla() {
     elReal.innerText = `$${gRealizado.toLocaleString(undefined, {minimumFractionDigits:2})}`;
     elReal.className = `text-2xl font-mono mt-1 font-bold ${gRealizado >= 0 ? 'text-yellow-400' : 'text-red-400'}`;
 
-    // Guardar snapshot automático cuando los precios reales estén disponibles
-    if (vTotal > 0) guardarSnapshot(vTotal);
+    // Guardar snapshot automático (en background, no bloquea el render principal)
+    if (vTotal > 0) setTimeout(() => { try { guardarSnapshot(vTotal); } catch(e) { console.warn('snapshot err:', e); } }, 0);
 }
 
 // Verificar alertas cada 5 minutos (no en el arranque inmediato)
