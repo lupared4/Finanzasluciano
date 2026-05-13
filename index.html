@@ -612,6 +612,14 @@
                         <p class="text-gray-700 text-[10px] italic text-center py-2">Presioná Calc para calcular</p>
                     </div>
                 </div>
+
+                <!-- Rebalanceo sugerido -->
+                <div class="border-t border-gray-700 mt-4 pt-3">
+                    <button onclick="abrirRebalanceo()"
+                            class="w-full text-xs bg-indigo-900/60 hover:bg-indigo-800/80 border border-indigo-700/50 text-indigo-300 font-bold py-2 rounded-lg transition-all flex items-center justify-center gap-1.5">
+                        ⚖️ Sugerencia de Rebalanceo
+                    </button>
+                </div>
             </div>
         </div>
 
@@ -668,6 +676,7 @@
                                 <th class="pb-2">Activo</th>
                                 <th class="pb-2">Cant.</th>
                                 <th class="pb-2">Precio Act.</th>
+                                <th class="pb-2 text-right" title="Cambio porcentual del día vs cierre anterior">Hoy %</th>
                                 <th class="pb-2 text-right">P&amp;L Latente</th>
                                 <th class="pb-2 text-center" title="Score de convicción 0–10: upside analistas + momentum + RSI + recomendación">Score</th>
                                 <th class="pb-2 text-center">Acciones</th>
@@ -684,8 +693,19 @@
         <!-- COL 4: Distribución + Noticias -->
         <div class="lg:col-span-1 space-y-6">
             <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg">
-                <h3 class="text-gray-300 font-bold mb-4 text-center text-xs uppercase tracking-widest">Distribución</h3>
-                <div style="height:180px;"><canvas id="graficoTorta"></canvas></div>
+                <div class="flex justify-between items-center mb-3">
+                    <h3 class="text-gray-300 font-bold text-xs uppercase tracking-widest">Distribución</h3>
+                    <div class="flex gap-1 bg-gray-700 rounded-lg p-0.5">
+                        <button id="dist-btn-activos" onclick="switchDistribucion('activos')"
+                                class="dist-btn px-2 py-0.5 text-[10px] rounded font-bold bg-blue-600 text-white transition-all">Activos</button>
+                        <button id="dist-btn-sectores" onclick="switchDistribucion('sectores')"
+                                class="dist-btn px-2 py-0.5 text-[10px] rounded font-bold text-gray-400 hover:text-white transition-all">Sectores</button>
+                    </div>
+                </div>
+                <div style="height:180px;">
+                    <canvas id="graficoTorta"></canvas>
+                    <canvas id="graficoSectores" class="hidden"></canvas>
+                </div>
             </div>
             <div class="bg-gray-800 p-5 rounded-xl border border-gray-700 shadow-lg min-h-[260px]">
                 <h3 id="titulo-noticias" class="text-blue-300 font-bold mb-4 uppercase text-xs">Noticias</h3>
@@ -819,6 +839,14 @@
                         <p class="text-gray-500 text-[9px] uppercase">Distancia</p>
                         <p id="zona-distancia" class="font-mono font-bold text-white">—</p>
                     </div>
+                </div>
+                <!-- Stop-loss ATR -->
+                <div class="mt-2 pt-2 border-t border-green-800/30 flex items-center justify-between">
+                    <span class="text-gray-500 text-[9px] uppercase">🛡 Stop ATR(14)</span>
+                    <span class="text-[9px]">
+                        <span id="zona-stop-precio" class="font-mono font-bold text-red-400">—</span>
+                        <span id="zona-stop-pct" class="text-gray-500 ml-1">—</span>
+                    </span>
                 </div>
             </div>
 
@@ -1114,6 +1142,9 @@
                             class="evo-btn px-2 py-1 text-xs rounded font-bold text-gray-400 hover:text-white transition-all">Todo</button>
                 </div>
                 <button onclick="guardarSnapshotManual()" class="text-xs bg-gray-700 hover:bg-gray-600 px-2 py-1 rounded font-bold transition-all">💾 Guardar</button>
+                <button id="evo-btn-benchmark" onclick="toggleBenchmark()"
+                        class="text-xs bg-gray-700 hover:bg-blue-700 px-2 py-1 rounded font-bold transition-all"
+                        title="Comparar retorno vs S&P 500 (normalizado a base 100)">📊 vs S&P</button>
             </div>
         </div>
         <div style="height:200px;"><canvas id="grafico-evolucion"></canvas></div>
@@ -1326,7 +1357,7 @@ async function cargarDatos() {
         }
 
         // Construir datosActuales usando precio de compra como precio_actual inicial
-        function buildDatos(precioMap) {
+        function buildDatos(precioMap, cambioMap) {
             return tickers.map(t => {
                 const compras        = porTicker[t].compras;
                 const ventas         = porTicker[t].ventas;
@@ -1347,12 +1378,13 @@ async function cargarDatos() {
                     precio_actual: Math.round(precioActual   * 100) / 100,
                     ganancia:      Math.round(ganancia       * 100) / 100,
                     pnl_realizado: Math.round(pnlRealizado   * 100) / 100,
+                    cambio_pct:    cambioMap && cambioMap[t] != null ? cambioMap[t] : null,
                 };
             });
         }
 
         // Paso 1: mostrar INMEDIATAMENTE con precio de compra (sin esperar red)
-        datosActuales = buildDatos({});
+        datosActuales = buildDatos({}, {});
         renderTabla();
         renderTorta();
         if (datosActuales.length > 0 && !tickerActivo) {
@@ -1369,12 +1401,15 @@ async function cargarDatos() {
             )
         ).then(results => {
             const precioMap = {};
+            const cambioMap = {};
             results.forEach((r, i) => {
-                if (r.status === 'fulfilled' && r.value?.precio > 0)
+                if (r.status === 'fulfilled' && r.value?.precio > 0) {
                     precioMap[tickers[i]] = r.value.precio;
+                    if (r.value.cambio_pct != null) cambioMap[tickers[i]] = r.value.cambio_pct;
+                }
             });
             if (Object.keys(precioMap).length > 0) {
-                datosActuales = buildDatos(precioMap);
+                datosActuales = buildDatos(precioMap, cambioMap);
                 renderTabla();
                 renderTorta();
                 // Cargar scores en background después del render (no bloquea UI)
@@ -1527,6 +1562,11 @@ function renderIndicadores(d) {
     // Actualizar cache con la URL de calidad del backend
     if (d.logo_url && d.logo_url !== logoCache[d.ticker]) {
         logoCache[d.ticker] = d.logo_url;
+    }
+    // Cache de sector para distribución
+    if (d.sector && d.ticker) {
+        _sectorCache[d.ticker] = d.sector;
+        if (_distribTab === 'sectores') renderSectores();
     }
 
     // Rentabilidad
@@ -1756,6 +1796,28 @@ function _calcularZonaCompra(datos) {
     }
     senEl.textContent  = senal;
     senEl.className    = `text-[9px] px-2 py-0.5 rounded-full ${senalClass}`;
+
+    // Stop-loss ATR(14): 2× ATR por debajo del precio actual
+    const highs  = datos.map(d => d.high || d.close);
+    const atrArr = [];
+    for (let i = 1; i < datos.length; i++) {
+        const tr = Math.max(
+            highs[i]  - lows[i],
+            Math.abs(highs[i]  - closes[i - 1]),
+            Math.abs(lows[i]   - closes[i - 1])
+        );
+        atrArr.push(tr);
+    }
+    const atrWindow = atrArr.slice(-14);
+    const atr14 = atrWindow.length > 0 ? atrWindow.reduce((a, b) => a + b, 0) / atrWindow.length : null;
+    const stopPrecioEl = document.getElementById('zona-stop-precio');
+    const stopPctEl    = document.getElementById('zona-stop-pct');
+    if (atr14 != null && stopPrecioEl) {
+        const stopPrecio = ultimo - 2 * atr14;
+        const stopPct    = ((stopPrecio - ultimo) / ultimo * 100);
+        stopPrecioEl.textContent = `$${stopPrecio.toFixed(2)}`;
+        stopPctEl.textContent    = `(${stopPct.toFixed(1)}%)`;
+    }
 }
 
 function _agregarMarcadoresGrafico(serie) {
@@ -1797,6 +1859,81 @@ async function cambiarTipoGrafico(tipo) {
 // ═══════════════════════════════════════════════════════════════════════════
 // DISTRIBUCIÓN (doughnut)
 // ═══════════════════════════════════════════════════════════════════════════
+let _sectorCache = {};   // ticker → sector
+let _distribTab  = 'activos';
+let chartSectores = null;
+
+function switchDistribucion(tab) {
+    _distribTab = tab;
+    document.querySelectorAll('.dist-btn').forEach(b => {
+        b.classList.remove('bg-blue-600','text-white');
+        b.classList.add('text-gray-400');
+    });
+    const btn = document.getElementById(`dist-btn-${tab}`);
+    if (btn) { btn.classList.add('bg-blue-600','text-white'); btn.classList.remove('text-gray-400'); }
+
+    const cActivos  = document.getElementById('graficoTorta');
+    const cSectores = document.getElementById('graficoSectores');
+    if (tab === 'activos') {
+        cActivos?.classList.remove('hidden');
+        cSectores?.classList.add('hidden');
+    } else {
+        cActivos?.classList.add('hidden');
+        cSectores?.classList.remove('hidden');
+        renderSectores();
+    }
+}
+
+function renderSectores() {
+    const ctx = document.getElementById('graficoSectores')?.getContext('2d');
+    if (!ctx || datosActuales.length === 0) return;
+
+    // Agrupar valor por sector
+    const sectorValor = {};
+    const SECTOR_COLORS = {
+        'Technology':            '#3b82f6',
+        'Healthcare':            '#10b981',
+        'Financial Services':    '#f59e0b',
+        'Consumer Cyclical':     '#f97316',
+        'Consumer Defensive':    '#84cc16',
+        'Energy':                '#ef4444',
+        'Industrials':           '#8b5cf6',
+        'Communication Services':'#06b6d4',
+        'Basic Materials':       '#d97706',
+        'Real Estate':           '#ec4899',
+        'Utilities':             '#6366f1',
+        'Crypto':                '#fb923c',
+        'CEDEARs/Bonos':         '#22d3ee',
+    };
+    datosActuales.forEach(d => {
+        let sector = _sectorCache[d.ticker] || null;
+        if (!sector) {
+            if (esCryptoTicker(d.ticker)) sector = 'Crypto';
+            else if (esCedearTicker(d.ticker) || esBonoArgentino(d.ticker)) sector = 'CEDEARs/Bonos';
+            else sector = 'Otros';
+        }
+        const val = d.cantidad * d.precio_actual;
+        sectorValor[sector] = (sectorValor[sector] || 0) + val;
+    });
+
+    const labels = Object.keys(sectorValor);
+    const valores = labels.map(s => sectorValor[s]);
+    const colors  = labels.map(s => SECTOR_COLORS[s] || '#9ca3af');
+
+    if (chartSectores) chartSectores.destroy();
+    chartSectores = new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+            labels,
+            datasets: [{ data: valores, backgroundColor: colors, borderWidth: 0 }]
+        },
+        options: {
+            plugins: { legend: { display: true, labels: { color: '#9ca3af', font: { size: 9 }, boxWidth: 10, padding: 6 } } },
+            maintainAspectRatio: false,
+            cutout: '62%',
+        }
+    });
+}
 function renderTorta() {
     const ctx = document.getElementById('graficoTorta').getContext('2d');
     if (chartTorta) chartTorta.destroy();
@@ -3211,6 +3348,18 @@ async function verificarAlertas() {
 // ═══════════════════════════════════════════════════════════════════════════
 let chartEvolucion = null;
 let rangoEvo = '1m';
+let _benchmarkActivo = false;
+
+function toggleBenchmark() {
+    _benchmarkActivo = !_benchmarkActivo;
+    const btn = document.getElementById('evo-btn-benchmark');
+    if (btn) {
+        btn.classList.toggle('bg-blue-600', _benchmarkActivo);
+        btn.classList.toggle('text-white', _benchmarkActivo);
+        btn.classList.toggle('bg-gray-700', !_benchmarkActivo);
+    }
+    renderEvolucion();
+}
 
 function _getSnapshots()   { try { return JSON.parse(localStorage.getItem('snapshots_cartera') || '[]'); } catch { return []; } }
 function _saveSnapshots(s) { localStorage.setItem('snapshots_cartera', JSON.stringify(s)); }
@@ -3250,7 +3399,7 @@ function cambiarRangoEvo(rango) {
     renderEvolucion();
 }
 
-function renderEvolucion() {
+async function renderEvolucion() {
     try {
     let snapshots = _getSnapshots();
     if (snapshots.length === 0) {
@@ -3285,9 +3434,129 @@ function renderEvolucion() {
     const valores = filtered.map(s => s.valor);
     const primerValor = valores[0];
     const ultimoValor = valores[valores.length - 1];
-    const cambio      = primerValor > 0 ? ((ultimoValor - primerValor) / primerValor * 100) : 0;
-    const colorLinea  = cambio >= 0 ? '#22c55e' : '#ef4444';
+    const cambio = primerValor > 0 ? ((ultimoValor - primerValor) / primerValor * 100) : 0;
+    const colorLinea = cambio >= 0 ? '#22c55e' : '#ef4444';
 
+    // ─── Benchmark S&P 500 ───────────────────────────────────────────────
+    let spyDataset = null;
+    let benchCambio = null;
+    if (_benchmarkActivo && filtered.length >= 2) {
+        try {
+            const periodoApi = rangoEvo === '1m' ? '3mo' : rangoEvo === '3m' ? '6mo' : '2y';
+            const spyVelas = await fetch(
+                `https://finanzasluciano.onrender.com/velas/SPY?period=${periodoApi}`,
+                { signal: AbortSignal.timeout(20000) }
+            ).then(r => r.json());
+
+            if (Array.isArray(spyVelas) && spyVelas.length > 5) {
+                // Mapear fechas del portfolio a cierres de SPY más cercanos
+                const spyMap = {};
+                spyVelas.forEach(v => { spyMap[v.time] = v.close; });
+                const spyFechas = spyVelas.map(v => v.time).sort();
+
+                const findClose = (fecha) => {
+                    if (spyMap[fecha]) return spyMap[fecha];
+                    // Fecha más cercana (hacia atrás hasta 5 días)
+                    for (let i = 1; i <= 5; i++) {
+                        const d = new Date(fecha + 'T12:00:00');
+                        d.setDate(d.getDate() - i);
+                        const k = d.toISOString().substring(0, 10);
+                        if (spyMap[k]) return spyMap[k];
+                    }
+                    return null;
+                };
+
+                const spyValores = filtered.map(s => findClose(s.fecha));
+                const primerSpy  = spyValores.find(v => v != null);
+
+                if (primerSpy) {
+                    // Normalizar: portafolio y SPY ambos a base 100
+                    const portNorm = valores.map(v => (v / primerValor) * 100);
+                    const spyNorm  = spyValores.map(v => v != null ? (v / primerSpy) * 100 : null);
+                    const ultimoSpy = spyNorm.filter(v => v != null).pop();
+                    benchCambio = ultimoSpy != null ? (ultimoSpy - 100) : null;
+
+                    spyDataset = {
+                        label: 'S&P 500',
+                        data: spyNorm,
+                        borderColor: '#3b82f6',
+                        backgroundColor: 'transparent',
+                        borderWidth: 1.5,
+                        borderDash: [4, 3],
+                        pointRadius: 0,
+                        fill: false,
+                        tension: 0.2,
+                    };
+
+                    // Reemplazar valores por normalizados
+                    const portNormFinal = portNorm;
+                    const ctx2 = document.getElementById('grafico-evolucion').getContext('2d');
+                    if (chartEvolucion) chartEvolucion.destroy();
+                    chartEvolucion = new Chart(ctx2, {
+                        type: 'line',
+                        data: { labels, datasets: [
+                            {
+                                label: 'Mi Portafolio',
+                                data: portNormFinal,
+                                borderColor: colorLinea,
+                                backgroundColor: colorLinea + '15',
+                                borderWidth: 2,
+                                pointRadius: 0,
+                                fill: true,
+                                tension: 0.3,
+                            },
+                            spyDataset,
+                        ]},
+                        options: {
+                            responsive: true, maintainAspectRatio: false,
+                            interaction: { mode: 'index', intersect: false },
+                            plugins: {
+                                legend: { display: true, labels: { color: '#9ca3af', font: { size: 9 }, boxWidth: 10, padding: 8 } },
+                                tooltip: {
+                                    callbacks: {
+                                        label: c => ` ${c.dataset.label}: ${c.raw != null ? c.raw.toFixed(1) : '—'}`,
+                                    }
+                                }
+                            },
+                            scales: {
+                                x: { ticks: { color: '#6b7280', font: { size: 10 }, maxTicksLimit: 8 }, grid: { color: '#1f2937' } },
+                                y: {
+                                    ticks: { color: '#6b7280', font: { size: 10 }, callback: v => `${v.toFixed(0)}` },
+                                    grid: { color: '#1f2937' }
+                                }
+                            }
+                        }
+                    });
+
+                    // Stats con benchmark
+                    const alpha = benchCambio != null ? (cambio - benchCambio) : null;
+                    const alphaStr = alpha != null
+                        ? `<span class="font-mono font-bold ${alpha >= 0 ? 'text-green-400' : 'text-red-400'}">${alpha >= 0 ? '+' : ''}${alpha.toFixed(2)}%</span>`
+                        : '—';
+                    document.getElementById('evo-stats').innerHTML = `
+                        <div class="bg-gray-900/60 rounded-xl p-2 border border-gray-700">
+                            <p class="text-gray-500 text-[9px] uppercase mb-1">Mi retorno</p>
+                            <p class="font-mono font-bold ${cambio >= 0 ? 'text-green-400' : 'text-red-400'}">${cambio >= 0 ? '+' : ''}${cambio.toFixed(2)}%</p>
+                        </div>
+                        <div class="bg-gray-900/60 rounded-xl p-2 border border-gray-700">
+                            <p class="text-gray-500 text-[9px] uppercase mb-1">S&P 500</p>
+                            <p class="font-mono font-bold ${(benchCambio||0) >= 0 ? 'text-blue-400' : 'text-red-400'}">${benchCambio != null ? ((benchCambio >= 0 ? '+' : '') + benchCambio.toFixed(2) + '%') : '—'}</p>
+                        </div>
+                        <div class="bg-gray-900/60 rounded-xl p-2 border border-gray-700">
+                            <p class="text-gray-500 text-[9px] uppercase mb-1">Alpha</p>
+                            <p>${alphaStr}</p>
+                        </div>
+                        <div class="bg-gray-900/60 rounded-xl p-2 border border-gray-700">
+                            <p class="text-gray-500 text-[9px] uppercase mb-1">Base 100</p>
+                            <p class="text-white font-mono font-bold">${((valores[valores.length-1]/primerValor)*100).toFixed(1)}</p>
+                        </div>`;
+                    return; // Salir — ya renderizamos
+                }
+            }
+        } catch(e) { console.warn('Benchmark SPY error:', e); }
+    }
+
+    // ─── Gráfico en dólares (sin benchmark) ─────────────────────────────
     const ctx = document.getElementById('grafico-evolucion').getContext('2d');
     if (chartEvolucion) chartEvolucion.destroy();
     chartEvolucion = new Chart(ctx, {
@@ -3525,6 +3794,12 @@ function renderTabla() {
         else if (esCedearTicker(item.ticker)) badge = '<span class="text-[9px] bg-cyan-500/20 text-cyan-400 px-1 rounded">AR</span>';
         else if (esBonoArgentino(item.ticker)) badge = '<span class="text-[9px] bg-yellow-500/20 text-yellow-400 px-1 rounded">BON</span>';
 
+        // Cambio % diario
+        const chg     = item.cambio_pct != null ? item.cambio_pct : null;
+        const chgHtml = chg != null
+            ? `<span class="font-mono text-xs font-bold ${chg >= 0 ? 'text-green-400' : 'text-red-400'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</span>`
+            : `<span class="text-gray-600 text-xs">—</span>`;
+
         // Score de convicción (lazy — se carga en background)
         const scoreData = _scoreCache[item.ticker];
         const scoreHtml = scoreData != null
@@ -3543,6 +3818,7 @@ function renderTabla() {
                 </td>
                 <td class="text-gray-300">${item.cantidad}</td>
                 <td class="font-mono">$${item.precio_actual.toFixed(2)}</td>
+                <td class="text-right">${chgHtml}</td>
                 <td class="text-right font-bold font-mono ${color}">
                     ${pnlSign}$${item.ganancia.toLocaleString(undefined, {minimumFractionDigits:2})}
                 </td>
@@ -3591,6 +3867,100 @@ setTimeout(() => {
     verificarAlertas();
     setInterval(verificarAlertas, 300000);
 }, 15000);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// REBALANCEO SUGERIDO
+// ═══════════════════════════════════════════════════════════════════════════
+let _rebObjetivo = 'igual';
+
+function cambiarObjetivoRebalanceo(tipo) {
+    _rebObjetivo = tipo;
+    document.querySelectorAll('.reb-btn').forEach(b => {
+        b.classList.remove('bg-indigo-600','text-white');
+        b.classList.add('bg-gray-700','text-gray-400');
+    });
+    const btn = document.getElementById(`reb-btn-${tipo}`);
+    if (btn) { btn.classList.add('bg-indigo-600','text-white'); btn.classList.remove('bg-gray-700','text-gray-400'); }
+    renderRebalanceo();
+}
+
+function abrirRebalanceo() {
+    if (datosActuales.length === 0) return;
+    renderRebalanceo();
+    document.getElementById('modal-rebalanceo').classList.remove('hidden');
+}
+
+function renderRebalanceo() {
+    const cont   = document.getElementById('reb-tabla');
+    const resCont = document.getElementById('reb-resumen');
+    const resItems = document.getElementById('reb-resumen-items');
+    if (!cont || datosActuales.length === 0) return;
+
+    const n      = datosActuales.length;
+    const vTotal = datosActuales.reduce((s, d) => s + d.cantidad * d.precio_actual, 0);
+    if (vTotal <= 0) { cont.innerHTML = '<p class="text-gray-600 italic text-xs text-center py-4">Sin datos de precios</p>'; return; }
+
+    // Pesos objetivo: equiponderado = 1/n cada uno
+    const pesoObjetivo = 1 / n;
+
+    const filas = datosActuales.map(d => {
+        const valorActual  = d.cantidad * d.precio_actual;
+        const pesoActual   = valorActual / vTotal;
+        const valorObj     = vTotal * pesoObjetivo;
+        const diferencia   = valorObj - valorActual;
+        const sharesNeeded = d.precio_actual > 0 ? diferencia / d.precio_actual : 0;
+        return { ...d, valorActual, pesoActual, pesoObjetivo, valorObj, diferencia, sharesNeeded };
+    }).sort((a, b) => a.diferencia - b.diferencia); // más a vender primero
+
+    cont.innerHTML = filas.map(f => {
+        const desv    = ((f.pesoActual - f.pesoObjetivo) * 100).toFixed(1);
+        const accion  = f.diferencia >= 0 ? '🟢 Comprar' : '🔴 Vender';
+        const color   = f.diferencia >= 0 ? 'text-green-400' : 'text-red-400';
+        const bgColor = f.diferencia >= 0 ? 'bg-green-900/20 border-green-800/30' : 'bg-red-900/20 border-red-800/30';
+        const shares  = Math.abs(f.sharesNeeded);
+        const sharesText = shares < 0.01 ? '✓ OK' : `${shares.toFixed(2)} acciones`;
+        const barActual = Math.min(f.pesoActual * 100, 50);
+        const barObj    = Math.min(pesoObjetivo * 100, 50);
+
+        return `
+        <div class="rounded-xl p-3 border ${bgColor}">
+            <div class="flex justify-between items-start mb-2">
+                <div>
+                    <span class="font-bold text-blue-400 text-sm">${f.ticker}</span>
+                    <span class="text-gray-500 text-[10px] ml-2">Actual: ${(f.pesoActual*100).toFixed(1)}% · Objetivo: ${(pesoObjetivo*100).toFixed(1)}%</span>
+                </div>
+                <span class="text-[10px] font-bold ${color}">${accion}</span>
+            </div>
+            <!-- Barra comparativa -->
+            <div class="flex items-center gap-1.5 mb-2">
+                <div class="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full bg-blue-500/60" style="width:${barActual.toFixed(0)}%"></div>
+                </div>
+                <span class="text-gray-600 text-[9px]">→</span>
+                <div class="flex-1 h-1.5 bg-gray-700 rounded-full overflow-hidden">
+                    <div class="h-full rounded-full bg-indigo-500/60" style="width:${barObj.toFixed(0)}%"></div>
+                </div>
+            </div>
+            <div class="flex justify-between text-[10px] text-gray-400">
+                <span>$${f.valorActual.toLocaleString(undefined,{maximumFractionDigits:0})} → $${f.valorObj.toLocaleString(undefined,{maximumFractionDigits:0})}</span>
+                <span class="font-mono font-bold ${color}">${sharesText}</span>
+            </div>
+        </div>`;
+    }).join('');
+
+    // Resumen
+    const compras = filas.filter(f => f.diferencia > 50);
+    const ventas  = filas.filter(f => f.diferencia < -50);
+    if (compras.length > 0 || ventas.length > 0) {
+        resItems.innerHTML = [
+            ...compras.map(f => `<p class="text-green-400">▲ ${f.ticker}: comprar ~${Math.abs(f.sharesNeeded).toFixed(2)} sh ($${Math.abs(f.diferencia).toLocaleString(undefined,{maximumFractionDigits:0})})</p>`),
+            ...ventas.map(f  => `<p class="text-red-400">▼ ${f.ticker}: vender ~${Math.abs(f.sharesNeeded).toFixed(2)} sh ($${Math.abs(f.diferencia).toLocaleString(undefined,{maximumFractionDigits:0})})</p>`),
+        ].join('');
+        resCont?.classList.remove('hidden');
+    } else {
+        resCont?.classList.add('hidden');
+    }
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // HEATMAP DE CORRELACIÓN
@@ -4095,6 +4465,39 @@ setTimeout(() => cargarWatchlistCards(), 3000); // 3s después del arranque
         </div>
         <button onclick="limpiarAlertasLog()" class="mt-2 text-[10px] text-gray-600 hover:text-red-400 transition-colors">✕ Limpiar historial</button>
       </div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODAL — REBALANCEO
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="modal-rebalanceo" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+  <div class="bg-gray-900 rounded-2xl border border-gray-700 shadow-2xl w-full max-w-lg max-h-[90vh] overflow-y-auto p-6">
+    <div class="flex justify-between items-center mb-5">
+      <h2 class="text-white font-bold text-lg">⚖️ Rebalanceo Sugerido</h2>
+      <button onclick="cerrarModal('modal-rebalanceo')" class="text-gray-400 hover:text-white text-2xl font-bold leading-none">&times;</button>
+    </div>
+
+    <!-- Target weight selector -->
+    <div class="mb-4 flex flex-wrap gap-2 items-center">
+      <span class="text-gray-400 text-xs">Objetivo:</span>
+      <button onclick="cambiarObjetivoRebalanceo('igual')"
+              id="reb-btn-igual"
+              class="reb-btn px-3 py-1 text-xs rounded font-bold bg-indigo-600 text-white transition-all">Equiponderado</button>
+      <button onclick="cambiarObjetivoRebalanceo('custom')"
+              id="reb-btn-custom"
+              class="reb-btn px-3 py-1 text-xs rounded font-bold bg-gray-700 text-gray-400 transition-all">Personalizado</button>
+    </div>
+    <p class="text-gray-500 text-[10px] mb-4">Muestra cuánto comprar/vender para que cada activo represente el mismo % del portafolio. Los precios se actualizan al abrir.</p>
+
+    <div id="reb-tabla" class="space-y-2">
+      <p class="text-gray-600 italic text-xs text-center py-4">Cargando...</p>
+    </div>
+
+    <div id="reb-resumen" class="mt-4 p-3 bg-gray-800 rounded-xl text-xs border border-gray-700 hidden">
+      <p class="text-gray-400 text-[10px] uppercase tracking-widest mb-2">Resumen de operaciones</p>
+      <div id="reb-resumen-items" class="space-y-1"></div>
     </div>
   </div>
 </div>
