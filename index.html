@@ -36,7 +36,10 @@
         <input type="number" id="venta-cantidad" placeholder="Cantidad a vender"
                class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white focus:ring-2 focus:ring-red-500 outline-none">
         <input type="number" id="venta-precio" placeholder="Precio de Venta"
-               class="w-full bg-gray-700 rounded-lg p-2 mb-4 text-white focus:ring-2 focus:ring-red-500 outline-none">
+               class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white focus:ring-2 focus:ring-red-500 outline-none">
+        <input type="text" id="venta-nota" placeholder="Nota (opcional)"
+               class="w-full bg-gray-700/60 rounded-lg p-2 mb-4 text-white text-xs outline-none focus:ring-2 focus:ring-red-500/50"
+               maxlength="120">
         <div class="flex gap-3">
             <button onclick="confirmarVenta()"
                     class="flex-1 bg-red-600 hover:bg-red-500 py-2 rounded-lg font-bold transition-all text-sm">Confirmar</button>
@@ -470,6 +473,22 @@
         </div>
     </header>
 
+    <!-- ── BARRA DÓLAR (ARS) ────────────────────────────────────────────── -->
+    <div id="barra-dolar" class="mb-5 bg-gray-900/70 border border-yellow-900/50 rounded-xl px-4 py-2.5 flex flex-wrap items-center gap-x-5 gap-y-2">
+        <span class="text-yellow-400 font-bold text-xs uppercase tracking-widest shrink-0">💵 Tipo de Cambio ARS</span>
+        <div class="flex flex-wrap gap-x-5 gap-y-1 flex-1">
+            <span class="text-gray-500 text-xs" id="dolar-oficial-lbl">Oficial: <span id="dolar-oficial" class="font-mono text-white font-bold">…</span></span>
+            <span class="text-gray-500 text-xs" id="dolar-blue-lbl">Blue: <span id="dolar-blue" class="font-mono text-yellow-300 font-bold">…</span></span>
+            <span class="text-gray-500 text-xs" id="dolar-mep-lbl">MEP: <span id="dolar-mep" class="font-mono text-green-300 font-bold">…</span></span>
+            <span class="text-gray-500 text-xs" id="dolar-ccl-lbl">CCL: <span id="dolar-ccl" class="font-mono text-blue-300 font-bold">…</span></span>
+            <span class="text-gray-500 text-xs" id="dolar-crypto-lbl">Cripto: <span id="dolar-crypto" class="font-mono text-purple-300 font-bold">…</span></span>
+        </div>
+        <span id="patrimonio-ars" class="text-gray-500 text-[11px] hidden">
+            Portafolio: <span id="patrimonio-ars-val" class="font-mono text-yellow-200 font-bold">…</span> ARS (blue)
+        </span>
+        <span class="text-gray-700 text-[10px]" id="dolar-ts">—</span>
+    </div>
+
     <!-- ── ROW 0: Panel de Mercado (Índices) ────────────────────────────── -->
     <div class="mb-6">
         <div class="flex justify-between items-center mb-3">
@@ -516,6 +535,10 @@
                        onkeydown="if(event.key==='Enter') document.getElementById('input-precio').focus()">
                 <input type="number" id="input-precio" placeholder="Precio Compra (USD)"
                        class="w-full bg-gray-700 rounded-lg p-2 mb-3 text-white outline-none"
+                       onkeydown="if(event.key==='Enter') enviarCompra()">
+                <input type="text" id="input-nota" placeholder="Nota (opcional: ej. rebalanceo, stoploss…)"
+                       class="w-full bg-gray-700/60 rounded-lg p-2 mb-3 text-white text-xs outline-none focus:ring-2 focus:ring-blue-500/50"
+                       maxlength="120"
                        onkeydown="if(event.key==='Enter') enviarCompra()">
                 <button id="btn-registrar" onclick="enviarCompra()"
                         class="w-full bg-blue-600 hover:bg-blue-500 py-2 rounded-lg font-bold transition-all">
@@ -586,7 +609,14 @@
                         </div>
                     </div>
                 </div>
-                <div id="contenedor-grafico" style="height:260px;"></div>
+                <div id="contenedor-grafico" style="height:280px;"></div>
+                <!-- Leyenda SMAs -->
+                <div class="flex items-center gap-4 mt-2 px-1 text-[10px] text-gray-500">
+                    <span class="flex items-center gap-1"><span class="inline-block w-4 h-0.5 bg-yellow-400 rounded"></span> SMA 20</span>
+                    <span class="flex items-center gap-1"><span class="inline-block w-4 h-0.5 bg-indigo-400 rounded"></span> SMA 50</span>
+                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-green-400/30 border border-green-400"></span> Compra</span>
+                    <span class="flex items-center gap-1"><span class="inline-block w-3 h-3 rounded-full bg-red-400/30 border border-red-400"></span> Venta</span>
+                </div>
             </div>
 
             <!-- Tabla de activos -->
@@ -608,6 +638,7 @@
                                 <th class="pb-2">Cant.</th>
                                 <th class="pb-2">Precio Act.</th>
                                 <th class="pb-2 text-right">P&amp;L Latente</th>
+                                <th class="pb-2 text-center" title="Score de convicción 0–10: upside analistas + momentum + RSI + recomendación">Score</th>
                                 <th class="pb-2 text-center">Acciones</th>
                             </tr>
                         </thead>
@@ -1293,6 +1324,8 @@ async function cargarDatos() {
                 datosActuales = buildDatos(precioMap);
                 renderTabla();
                 renderTorta();
+                // Cargar scores en background después del render (no bloquea UI)
+                setTimeout(() => _cargarScores(tickers), 1500);
             }
         });
 
@@ -1551,6 +1584,16 @@ function renderOrderBook(d) {
 // ═══════════════════════════════════════════════════════════════════════════
 // GRÁFICO PRINCIPAL (lightweight-charts)
 // ═══════════════════════════════════════════════════════════════════════════
+
+// Calcula SMA sobre array de valores numéricos
+function _sma(values, period) {
+    return values.map((_, i) => {
+        if (i < period - 1) return null;
+        const slice = values.slice(i - period + 1, i + 1);
+        return slice.reduce((a, b) => a + b, 0) / period;
+    });
+}
+
 function renderGrafico(datos) {
     const contenedor = document.getElementById('contenedor-grafico');
     if (lwChart) { lwChart.remove(); lwChart = null; }
@@ -1566,10 +1609,13 @@ function renderGrafico(datos) {
         grid:      { vertLines: { color: '#1f2937' }, horzLines: { color: '#1f2937' } },
         crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
         rightPriceScale: { borderColor: '#374151' },
-        timeScale:       { borderColor: '#374151' },
+        timeScale:       { borderColor: '#374151', timeVisible: true },
         width:  contenedor.clientWidth,
-        height: 260,
+        height: 280,
     });
+
+    const closes = datos.map(d => d.close);
+    const times  = datos.map(d => d.time);
 
     if (tipoGrafico === 'linea') {
         const serie = lwChart.addLineSeries({ color: '#3b82f6', lineWidth: 2 });
@@ -1586,6 +1632,31 @@ function renderGrafico(datos) {
         })));
         _agregarMarcadoresGrafico(serie);
     }
+
+    // ── SMA 20 ───────────────────────────────────────────────────────────
+    if (datos.length >= 20) {
+        const sma20vals = _sma(closes, 20);
+        const sma20Serie = lwChart.addLineSeries({
+            color: '#f59e0b', lineWidth: 1, priceLineVisible: false,
+            lastValueVisible: true, title: 'SMA20',
+        });
+        sma20Serie.setData(
+            times.map((t, i) => sma20vals[i] != null ? { time: t, value: sma20vals[i] } : null).filter(Boolean)
+        );
+    }
+
+    // ── SMA 50 ───────────────────────────────────────────────────────────
+    if (datos.length >= 50) {
+        const sma50vals = _sma(closes, 50);
+        const sma50Serie = lwChart.addLineSeries({
+            color: '#818cf8', lineWidth: 1, priceLineVisible: false,
+            lastValueVisible: true, title: 'SMA50',
+        });
+        sma50Serie.setData(
+            times.map((t, i) => sma50vals[i] != null ? { time: t, value: sma50vals[i] } : null).filter(Boolean)
+        );
+    }
+
     lwChart.timeScale().fitContent();
 }
 
@@ -2380,6 +2451,7 @@ function abrirModalVenta(ticker) {
     document.getElementById('venta-ticker').value   = ticker;
     document.getElementById('venta-cantidad').value = '';
     document.getElementById('venta-precio').value   = '';
+    if (document.getElementById('venta-nota')) document.getElementById('venta-nota').value = '';
     document.getElementById('modal-venta').classList.remove('hidden');
 }
 
@@ -2399,7 +2471,10 @@ function confirmarVenta() {
         alert(`Solo tenés ${cantCompra - cantVenta} unidades disponibles de ${ticker}`);
         return;
     }
-    ops.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2), ticker, tipo: 'Venta', cantidad, precio, fecha: new Date().toISOString() });
+    const nota = (document.getElementById('venta-nota')?.value || '').trim().slice(0, 120);
+    const entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2), ticker, tipo: 'Venta', cantidad, precio, fecha: new Date().toISOString() };
+    if (nota) entry.nota = nota;
+    ops.push(entry);
     saveOperaciones(ops);
     cerrarModal('modal-venta');
     cargarDatos();
@@ -2449,10 +2524,13 @@ function enviarCompra() {
 
     // Auto-detectar crypto aunque el usuario no cambie el toggle
     const esCrypto = _tipoActivo === 'crypto' || CRYPTO_SYMBOLS.has(t);
+    const nota = (document.getElementById('input-nota')?.value || '').trim().slice(0, 120);
 
     // Guardar en localStorage — instantáneo, sin servidor
     const ops = getOperaciones();
-    ops.push({ id: Date.now().toString(36) + Math.random().toString(36).slice(2), ticker: t, tipo: 'Compra', cantidad: parseFloat(c), precio: parseFloat(p), fecha: new Date().toISOString(), tipo_activo: esCrypto ? 'crypto' : 'stock' });
+    const entry = { id: Date.now().toString(36) + Math.random().toString(36).slice(2), ticker: t, tipo: 'Compra', cantidad: parseFloat(c), precio: parseFloat(p), fecha: new Date().toISOString(), tipo_activo: esCrypto ? 'crypto' : 'stock' };
+    if (nota) entry.nota = nota;
+    ops.push(entry);
     saveOperaciones(ops);
 
     // Historial rápido
@@ -2468,6 +2546,7 @@ function enviarCompra() {
 
     document.getElementById('input-ticker').value   = '';
     document.getElementById('input-cantidad').value = '';
+    if (document.getElementById('input-nota')) document.getElementById('input-nota').value = '';
     document.getElementById('input-ticker').focus();
 
     const btn = document.getElementById('btn-registrar');
@@ -2812,9 +2891,10 @@ function renderHistorial() {
             </td>
             <td class="py-2 pr-3 text-right font-mono text-gray-200">${op.cantidad}</td>
             <td class="py-2 pr-3 text-right font-mono text-gray-200">$${parseFloat(op.precio).toFixed(2)}</td>
-            <td class="py-2 text-right font-mono font-bold ${op.tipo === 'Compra' ? 'text-gray-100' : 'text-red-300'}">
+            <td class="py-2 pr-3 text-right font-mono font-bold ${op.tipo === 'Compra' ? 'text-gray-100' : 'text-red-300'}">
                 ${op.tipo === 'Compra' ? '' : '-'}$${total.toLocaleString(undefined, {minimumFractionDigits:2})}
             </td>
+            ${op.nota ? `<td class="py-2 pl-2 text-gray-500 text-[10px] italic max-w-[140px] truncate" title="${op.nota.replace(/"/g,'&quot;')}">💬 ${op.nota}</td>` : '<td></td>'}
         </tr>`;
     }).join('');
 
@@ -3262,6 +3342,12 @@ function renderTabla() {
         else if (esCedearTicker(item.ticker)) badge = '<span class="text-[9px] bg-cyan-500/20 text-cyan-400 px-1 rounded">AR</span>';
         else if (esBonoArgentino(item.ticker)) badge = '<span class="text-[9px] bg-yellow-500/20 text-yellow-400 px-1 rounded">BON</span>';
 
+        // Score de convicción (lazy — se carga en background)
+        const scoreData = _scoreCache[item.ticker];
+        const scoreHtml = scoreData != null
+            ? _renderScorePill(scoreData)
+            : `<span id="score-pill-${item.ticker}" class="text-gray-700 text-[10px]">…</span>`;
+
         tabla.innerHTML += `
             <tr class="hover:bg-gray-700/50 cursor-pointer border-b border-gray-800 transition-colors"
                 onclick="seleccionarActivo('${item.ticker}')">
@@ -3277,6 +3363,7 @@ function renderTabla() {
                 <td class="text-right font-bold font-mono ${color}">
                     ${pnlSign}$${item.ganancia.toLocaleString(undefined, {minimumFractionDigits:2})}
                 </td>
+                <td class="text-center" id="score-cell-${item.ticker}">${scoreHtml}</td>
                 <td class="text-center whitespace-nowrap">
                     <button onclick="event.stopPropagation(); abrirComparar('${item.ticker}')"
                             class="text-[10px] bg-blue-900 hover:bg-blue-700 px-2 py-1 rounded font-bold mr-1 transition-all" title="Comparar">
@@ -3301,6 +3388,9 @@ function renderTabla() {
     document.getElementById('valor-total').innerText =
         `$${vTotal.toLocaleString(undefined, {minimumFractionDigits:2})}`;
 
+    // Actualizar patrimonio en ARS (barra dólar)
+    _actualizarPatrimonioArs(vTotal);
+
     const elLat  = document.getElementById('ganancia-total');
     elLat.innerText = `$${gLatente.toLocaleString(undefined, {minimumFractionDigits:2})}`;
     elLat.className = `text-2xl font-mono mt-1 font-bold ${gLatente >= 0 ? 'text-green-400' : 'text-red-400'}`;
@@ -3318,6 +3408,104 @@ setTimeout(() => {
     verificarAlertas();
     setInterval(verificarAlertas, 300000);
 }, 15000);
+
+// ═══════════════════════════════════════════════════════════════════════════
+// TIPO DE CAMBIO ARS — dolarapi.com (gratuita, sin auth)
+// ═══════════════════════════════════════════════════════════════════════════
+let _dolarBlue = null;
+const _dolarCache = {};
+
+async function cargarDolar() {
+    try {
+        const data = await fetch('https://dolarapi.com/v1/dolares', { signal: AbortSignal.timeout(10000) }).then(r => r.json());
+        if (!Array.isArray(data)) return;
+        const find = (casa) => data.find(d => d.casa === casa);
+        const oficial  = find('oficial');
+        const blue     = find('blue');
+        const mep      = find('bolsa');
+        const ccl      = find('contadoconliqui');
+        const cripto   = find('cripto');
+        const fmt = (d) => d ? `$${parseFloat(d.venta).toLocaleString('es-AR', {minimumFractionDigits:0})}` : '—';
+        document.getElementById('dolar-oficial').textContent = fmt(oficial);
+        document.getElementById('dolar-blue').textContent   = fmt(blue);
+        document.getElementById('dolar-mep').textContent    = fmt(mep);
+        document.getElementById('dolar-ccl').textContent    = fmt(ccl);
+        document.getElementById('dolar-crypto').textContent = fmt(cripto);
+        if (blue) _dolarBlue = parseFloat(blue.venta);
+        const now = new Date();
+        document.getElementById('dolar-ts').textContent = `Act. ${now.getHours()}:${String(now.getMinutes()).padStart(2,'0')}`;
+        // Recalcular patrimonio ARS si ya hay datos
+        if (datosActuales.length > 0) {
+            const vTotal = datosActuales.reduce((s, i) => s + i.cantidad * i.precio_actual, 0);
+            _actualizarPatrimonioArs(vTotal);
+        }
+    } catch(e) {
+        console.warn('Dolar API error:', e);
+    }
+}
+
+function _actualizarPatrimonioArs(vUsd) {
+    const el  = document.getElementById('patrimonio-ars');
+    const val = document.getElementById('patrimonio-ars-val');
+    if (!el || !val || !_dolarBlue || vUsd <= 0) return;
+    const ars = vUsd * _dolarBlue;
+    val.textContent = `$${ars.toLocaleString('es-AR', {minimumFractionDigits:0})}`;
+    el.classList.remove('hidden');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// SCORE DE CONVICCIÓN — carga lazy desde /ia/ (no bloquea renderTabla)
+// ═══════════════════════════════════════════════════════════════════════════
+const _scoreCache = {};
+
+function _calcScore(ia) {
+    // Componentes (0–10 cada uno, suma hasta 10 ponderada)
+    let pts = 0;
+    // 1. Upside analistas (0-3 pts)
+    const upside = parseFloat(ia.upside_pct);
+    if (!isNaN(upside)) {
+        if      (upside >= 30) pts += 3;
+        else if (upside >= 15) pts += 2;
+        else if (upside >  0)  pts += 1;
+        else if (upside < -10) pts -= 1;
+    }
+    // 2. Recomendación analistas (0-3 pts)
+    const rec = (ia.recomendacion || '').toLowerCase();
+    if (rec.includes('strong buy') || rec.includes('fuerte compra')) pts += 3;
+    else if (rec.includes('buy') || rec.includes('compra'))          pts += 2;
+    else if (rec.includes('hold') || rec.includes('mantener'))       pts += 1;
+    else if (rec.includes('sell') || rec.includes('venta'))          pts -= 1;
+    // 3. Score IA (/100 → 0-4 pts)
+    const scoreIA = parseFloat(ia.score);
+    if (!isNaN(scoreIA)) pts += Math.round(scoreIA / 100 * 4);
+    return Math.max(0, Math.min(10, pts));
+}
+
+function _renderScorePill(s) {
+    const color = s >= 8 ? 'bg-green-700 text-green-200 border-green-600'
+                : s >= 6 ? 'bg-yellow-700/80 text-yellow-200 border-yellow-600'
+                : s >= 4 ? 'bg-orange-800/60 text-orange-300 border-orange-700'
+                :          'bg-red-900/50 text-red-400 border-red-800';
+    const label = s >= 8 ? '🔥' : s >= 6 ? '👍' : s >= 4 ? '😐' : '⚠️';
+    return `<span class="inline-flex items-center gap-1 text-[11px] font-bold px-2 py-0.5 rounded-full border ${color}" title="Score de convicción ${s}/10">${label} ${s}</span>`;
+}
+
+async function _cargarScores(tickers) {
+    if (!tickers || tickers.length === 0) return;
+    const pending = tickers.filter(t => _scoreCache[t] == null);
+    if (pending.length === 0) return;
+    // Carga en paralelo con delay escalonado para no saturar el backend
+    await Promise.allSettled(pending.map(async (t, i) => {
+        await new Promise(r => setTimeout(r, i * 600)); // 600ms entre cada uno
+        try {
+            const ia = await fetch(`https://finanzasluciano.onrender.com/ia/${t}`, { signal: AbortSignal.timeout(25000) }).then(r => r.json());
+            _scoreCache[t] = _calcScore(ia);
+        } catch { _scoreCache[t] = null; }
+        // Actualizar pill en DOM si ya está renderizada
+        const cell = document.getElementById(`score-cell-${t}`);
+        if (cell && _scoreCache[t] != null) cell.innerHTML = _renderScorePill(_scoreCache[t]);
+    }));
+}
 
 // ═══════════════════════════════════════════════════════════════════════════
 // KEEP-ALIVE — ping al backend cada 13 min para evitar cold start de Render
@@ -3499,14 +3687,22 @@ async function cargarWatchlistCards() {
 // Llamar al arrancar y en cada refresh
 arrancar();
 setInterval(() => {
-    cargarDatos().then(() => { precargarLogos(); cargarRiesgoCartera(); });
+    cargarDatos().then(() => {
+        precargarLogos();
+        cargarRiesgoCartera();
+        // Re-cargar scores para tickers nuevos (sin cache)
+        const tickers = datosActuales.map(d => d.ticker);
+        setTimeout(() => _cargarScores(tickers), 2000);
+    });
     if (_getWatchlist().length > 0) cargarWatchlistCards();
     actualizarBadgeAlertas();
 }, 60000);
 
-// Init badges y watchlist al cargar
+// Init badges, watchlist y dólar al cargar
 actualizarBadgeAlertas();
 actualizarBadgeWatchlist();
+cargarDolar();
+setInterval(cargarDolar, 5 * 60 * 1000); // actualizar cotizaciones cada 5 min
 setTimeout(() => cargarWatchlistCards(), 3000); // 3s después del arranque
 </script>
 
