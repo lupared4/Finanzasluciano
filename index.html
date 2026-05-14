@@ -613,11 +613,15 @@
                     </div>
                 </div>
 
-                <!-- Rebalanceo sugerido -->
-                <div class="border-t border-gray-700 mt-4 pt-3">
+                <!-- Rebalanceo sugerido + Markowitz -->
+                <div class="border-t border-gray-700 mt-4 pt-3 space-y-2">
                     <button onclick="abrirRebalanceo()"
                             class="w-full text-xs bg-indigo-900/60 hover:bg-indigo-800/80 border border-indigo-700/50 text-indigo-300 font-bold py-2 rounded-lg transition-all flex items-center justify-center gap-1.5">
                         ⚖️ Sugerencia de Rebalanceo
+                    </button>
+                    <button onclick="abrirMarkowitz()"
+                            class="w-full text-xs bg-violet-900/60 hover:bg-violet-800/80 border border-violet-700/50 text-violet-300 font-bold py-2 rounded-lg transition-all flex items-center justify-center gap-1.5">
+                        📐 Optimización de Cartera (Markowitz)
                     </button>
                 </div>
             </div>
@@ -3168,51 +3172,122 @@ function abrirHistorial() {
     modal.classList.remove('hidden');
 }
 
+// ── FIFO cost-basis para calcular P&L por venta ──────────────────────────
+function _calcularPnlFifo(allOps) {
+    // Procesa las operaciones cronológicamente y asigna cost basis FIFO a cada venta
+    const sorted = [...allOps].sort((a, b) => new Date(a.fecha) - new Date(b.fecha));
+    // colas FIFO: { [ticker]: [{cantidad, precio}] }
+    const queues = {};
+    const result = []; // misma longitud que sorted, con campo pnl solo en ventas
+
+    for (const op of sorted) {
+        const t = op.ticker;
+        if (!queues[t]) queues[t] = [];
+
+        if (op.tipo === 'Compra') {
+            queues[t].push({ cantidad: op.cantidad, precio: op.precio });
+            result.push({ ...op, pnl: null });
+        } else {
+            // Venta: consumir cola FIFO
+            let cantRestante = op.cantidad;
+            let costoTotal = 0;
+            const q = queues[t] || [];
+            while (cantRestante > 0 && q.length > 0) {
+                const lote = q[0];
+                const consumido = Math.min(cantRestante, lote.cantidad);
+                costoTotal += consumido * lote.precio;
+                cantRestante -= consumido;
+                lote.cantidad -= consumido;
+                if (lote.cantidad <= 0) q.shift();
+            }
+            const ingreso = op.cantidad * op.precio;
+            const pnl = ingreso - costoTotal;
+            result.push({ ...op, pnl });
+        }
+    }
+    return result;
+}
+
 function renderHistorial() {
     const ops  = getOperaciones();
     const filtro = document.getElementById('hist-filtro').value;
-    const filtered = filtro ? ops.filter(o => o.ticker === filtro) : ops;
-    const tabla = document.getElementById('historial-tabla');
-    const vacio = document.getElementById('historial-vacio');
+    const tipoFiltro = document.getElementById('hist-tipo')?.value || '';
+    const filtroOps = filtro ? ops.filter(o => o.ticker === filtro) : ops;
+    const filtered  = tipoFiltro ? filtroOps.filter(o => o.tipo === tipoFiltro) : filtroOps;
+    const tabla  = document.getElementById('historial-tabla');
+    const vacio  = document.getElementById('historial-vacio');
     const resumen = document.getElementById('historial-resumen');
 
     if (filtered.length === 0) {
         tabla.innerHTML = '';
         vacio.classList.remove('hidden');
-        resumen.textContent = '0 operaciones';
+        resumen.innerHTML = '0 operaciones';
         return;
     }
     vacio.classList.add('hidden');
 
+    // Calcular P&L FIFO sobre todas las operaciones del ticker filtrado (contexto completo)
+    const allOpsForFifo = filtro ? ops.filter(o => o.ticker === filtro) : ops;
+    const opsConPnl = _calcularPnlFifo(allOpsForFifo);
+    // Crear mapa id → pnl
+    const pnlMap = {};
+    opsConPnl.forEach(o => { if (o.id) pnlMap[o.id] = o.pnl; });
+
     // Ordenar de más reciente a más antiguo
     const sorted = [...filtered].sort((a, b) => new Date(b.fecha) - new Date(a.fecha));
+
+    let totalPnlRealizado = 0;
     let totalInvertido = 0;
-    tabla.innerHTML = sorted.map(op => {
+    let totalVentaIngresos = 0;
+    sorted.forEach(op => {
         const total = op.cantidad * op.precio;
         if (op.tipo === 'Compra') totalInvertido += total;
+        else {
+            totalVentaIngresos += total;
+            const p = pnlMap[op.id];
+            if (p != null) totalPnlRealizado += p;
+        }
+    });
+
+    tabla.innerHTML = sorted.map(op => {
+        const total = op.cantidad * op.precio;
         const fecha = new Date(op.fecha);
         const fechaStr = fecha.toLocaleDateString('es-AR', { day:'2-digit', month:'2-digit', year:'2-digit', hour:'2-digit', minute:'2-digit' });
         const colorTipo = op.tipo === 'Compra' ? 'text-green-400' : 'text-red-400';
         const bgTipo    = op.tipo === 'Compra' ? 'bg-green-900/30' : 'bg-red-900/30';
+
+        let pnlCell = '<td class="py-2 pr-2 text-center text-gray-700">—</td>';
+        if (op.tipo === 'Venta' && pnlMap[op.id] != null) {
+            const pnl = pnlMap[op.id];
+            const pnlColor = pnl >= 0 ? 'text-green-400' : 'text-red-400';
+            const pnlIcon  = pnl >= 0 ? '▲' : '▼';
+            pnlCell = `<td class="py-2 pr-2 text-right font-mono font-bold ${pnlColor} text-[11px]">
+                ${pnlIcon} $${Math.abs(pnl).toLocaleString(undefined,{minimumFractionDigits:2})}
+            </td>`;
+        }
+
         return `
-        <tr class="hover:bg-gray-700/30 transition-colors">
-            <td class="py-2 pr-3 text-gray-400 text-[10px] whitespace-nowrap">${fechaStr}</td>
-            <td class="py-2 pr-3 font-bold text-blue-400">${op.ticker}</td>
-            <td class="py-2 pr-3">
-                <span class="px-2 py-0.5 rounded text-[10px] font-bold ${colorTipo} ${bgTipo}">${op.tipo}</span>
+        <tr class="hover:bg-gray-700/30 transition-colors border-b border-gray-800/40">
+            <td class="py-2 pr-2 text-gray-400 text-[10px] whitespace-nowrap">${fechaStr}</td>
+            <td class="py-2 pr-2 font-bold text-blue-400 text-[11px]">${op.ticker}</td>
+            <td class="py-2 pr-2">
+                <span class="px-1.5 py-0.5 rounded text-[10px] font-bold ${colorTipo} ${bgTipo}">${op.tipo}</span>
             </td>
-            <td class="py-2 pr-3 text-right font-mono text-gray-200">${op.cantidad}</td>
-            <td class="py-2 pr-3 text-right font-mono text-gray-200">$${parseFloat(op.precio).toFixed(2)}</td>
-            <td class="py-2 pr-3 text-right font-mono font-bold ${op.tipo === 'Compra' ? 'text-gray-100' : 'text-red-300'}">
-                ${op.tipo === 'Compra' ? '' : '-'}$${total.toLocaleString(undefined, {minimumFractionDigits:2})}
+            <td class="py-2 pr-2 text-right font-mono text-gray-200 text-[11px]">${op.cantidad}</td>
+            <td class="py-2 pr-2 text-right font-mono text-gray-200 text-[11px]">$${parseFloat(op.precio).toFixed(2)}</td>
+            <td class="py-2 pr-2 text-right font-mono font-bold text-gray-100 text-[11px]">
+                $${total.toLocaleString(undefined,{minimumFractionDigits:2})}
             </td>
-            ${op.nota ? `<td class="py-2 pl-2 text-gray-500 text-[10px] italic max-w-[140px] truncate" title="${op.nota.replace(/"/g,'&quot;')}">💬 ${op.nota}</td>` : '<td></td>'}
+            ${pnlCell}
+            ${op.nota ? `<td class="py-2 pl-1 text-gray-500 text-[10px] italic max-w-[100px] truncate" title="${op.nota.replace(/"/g,'&quot;')}">💬 ${op.nota}</td>` : '<td></td>'}
         </tr>`;
     }).join('');
 
     const nCompras = filtered.filter(o => o.tipo === 'Compra').length;
     const nVentas  = filtered.filter(o => o.tipo === 'Venta').length;
-    resumen.textContent = `${filtered.length} operaciones · ${nCompras} compras · ${nVentas} ventas`;
+    const pnlColor = totalPnlRealizado >= 0 ? 'text-green-400' : 'text-red-400';
+    resumen.innerHTML = `<span class="text-gray-400">${filtered.length} ops · ${nCompras} compras · ${nVentas} ventas</span>` +
+        (nVentas > 0 ? ` · P&L realizado: <span class="font-bold font-mono ${pnlColor}">${totalPnlRealizado >= 0 ? '+' : ''}$${totalPnlRealizado.toLocaleString(undefined,{minimumFractionDigits:2})}</span>` : '');
 }
 
 function limpiarHistorialConfirm() {
@@ -3945,7 +4020,185 @@ function abrirRebalanceo() {
     document.getElementById('modal-rebalanceo').classList.remove('hidden');
 }
 
-function renderRebalanceo() {
+// ═══════════════════════════════════════════════════════════════════════════
+// OPTIMIZACIÓN DE CARTERA — MARKOWITZ
+// ═══════════════════════════════════════════════════════════════════════════
+let _mkwData     = null;   // resultado del backend
+let _mkwTab      = 'optimo'; // tab activo: 'optimo' | 'minvar'
+let _chartMkw    = null;   // instancia Chart.js del scatter
+
+function abrirMarkowitz() {
+    document.getElementById('modal-markowitz').classList.remove('hidden');
+    document.getElementById('mkw-loading').classList.remove('hidden');
+    document.getElementById('mkw-content').classList.add('hidden');
+    document.getElementById('mkw-error').classList.add('hidden');
+    _cargarMarkowitz();
+}
+
+async function _cargarMarkowitz() {
+    // Tickers de cartera (solo acciones, sin crypto)
+    const tickers = datosActuales.map(d => d.ticker).join(',');
+    if (!tickers) {
+        _mkwMostrarError('No hay activos en la cartera.');
+        return;
+    }
+    try {
+        const data = await fetch(
+            `https://finanzasluciano.onrender.com/markowitz?tickers=${encodeURIComponent(tickers)}`,
+            { signal: AbortSignal.timeout(60000) }
+        ).then(r => r.json());
+
+        if (data.error) { _mkwMostrarError(data.error); return; }
+        _mkwData = data;
+        _renderMarkowitz();
+    } catch(e) {
+        _mkwMostrarError('Error de conexión. Verificá que el backend esté activo.');
+    }
+}
+
+function _mkwMostrarError(msg) {
+    document.getElementById('mkw-loading').classList.add('hidden');
+    document.getElementById('mkw-error').classList.remove('hidden');
+    document.getElementById('mkw-error-msg').textContent = msg;
+}
+
+function _renderMarkowitz() {
+    if (!_mkwData) return;
+    const d = _mkwData;
+    document.getElementById('mkw-loading').classList.add('hidden');
+    document.getElementById('mkw-error').classList.add('hidden');
+    document.getElementById('mkw-content').classList.remove('hidden');
+
+    // Pills de stats
+    document.getElementById('mkw-opt-sharpe').textContent = `Sharpe ${d.optimo.sharpe.toFixed(2)}`;
+    document.getElementById('mkw-opt-ret').textContent    = `+${d.optimo.ret.toFixed(1)}%`;
+    document.getElementById('mkw-opt-vol').textContent    = `${d.optimo.vol.toFixed(1)}%`;
+    document.getElementById('mkw-mv-sharpe').textContent  = `Sharpe ${d.min_var.sharpe.toFixed(2)}`;
+    document.getElementById('mkw-mv-ret').textContent     = `+${d.min_var.ret.toFixed(1)}%`;
+    document.getElementById('mkw-mv-vol').textContent     = `${d.min_var.vol.toFixed(1)}%`;
+
+    // Scatter plot
+    const ctx = document.getElementById('grafico-markowitz').getContext('2d');
+    if (_chartMkw) { try { _chartMkw.destroy(); } catch {} }
+
+    // Colorear puntos por Sharpe (gradiente azul-amarillo)
+    const sharpes = d.scatter.map(p => p.s);
+    const sMin = Math.min(...sharpes), sMax = Math.max(...sharpes);
+    const ptColors = d.scatter.map(p => {
+        const t = sMax > sMin ? (p.s - sMin) / (sMax - sMin) : 0.5;
+        const r = Math.round(139 + t * (250 - 139));
+        const g = Math.round(92  + t * (204 - 92));
+        const b = Math.round(246 - t * (246 - 59));
+        return `rgba(${r},${g},${b},0.5)`;
+    });
+
+    _chartMkw = new Chart(ctx, {
+        type: 'scatter',
+        data: {
+            datasets: [
+                {
+                    label: 'Portafolios',
+                    data: d.scatter.map(p => ({ x: p.x, y: p.y })),
+                    backgroundColor: ptColors,
+                    pointRadius: 2,
+                    pointHoverRadius: 4,
+                },
+                {
+                    label: 'Máx. Sharpe',
+                    data: [{ x: d.optimo.vol, y: d.optimo.ret }],
+                    backgroundColor: '#facc15',
+                    borderColor: '#ffffff',
+                    borderWidth: 2,
+                    pointRadius: 9,
+                    pointHoverRadius: 12,
+                },
+                {
+                    label: 'Mín. Varianza',
+                    data: [{ x: d.min_var.vol, y: d.min_var.ret }],
+                    backgroundColor: '#22d3ee',
+                    borderColor: '#ffffff',
+                    borderWidth: 2,
+                    pointRadius: 9,
+                    pointHoverRadius: 12,
+                },
+            ]
+        },
+        options: {
+            responsive: true, maintainAspectRatio: false,
+            plugins: {
+                legend: { display: false },
+                tooltip: {
+                    callbacks: {
+                        label: c => {
+                            if (c.datasetIndex === 0) return ` Vol: ${c.parsed.x.toFixed(1)}%  Ret: ${c.parsed.y.toFixed(1)}%`;
+                            if (c.datasetIndex === 1) return ` ★ Máx. Sharpe — Vol: ${c.parsed.x.toFixed(1)}%  Ret: ${c.parsed.y.toFixed(1)}%`;
+                            return ` 🛡 Mín. Var — Vol: ${c.parsed.x.toFixed(1)}%  Ret: ${c.parsed.y.toFixed(1)}%`;
+                        }
+                    }
+                }
+            },
+            scales: {
+                x: {
+                    title: { display: true, text: 'Volatilidad anualizada (%)', color: '#6b7280', font: { size: 10 } },
+                    ticks: { color: '#6b7280', font: { size: 9 }, callback: v => `${v.toFixed(0)}%` },
+                    grid: { color: '#1f2937' }
+                },
+                y: {
+                    title: { display: true, text: 'Retorno esperado (%)', color: '#6b7280', font: { size: 10 } },
+                    ticks: { color: '#6b7280', font: { size: 9 }, callback: v => `${v.toFixed(0)}%` },
+                    grid: { color: '#1f2937' }
+                }
+            }
+        }
+    });
+
+    // Tabla de pesos
+    mkwSwitchTab(_mkwTab);
+}
+
+function mkwSwitchTab(tab) {
+    _mkwTab = tab;
+    document.querySelectorAll('.mkw-tab').forEach(b => {
+        b.classList.remove('bg-violet-700','text-white','bg-blue-700');
+        b.classList.add('bg-gray-700','text-gray-400');
+    });
+    const activeBtn = document.getElementById(`mkw-tab-${tab}`);
+    if (activeBtn) {
+        activeBtn.classList.remove('bg-gray-700','text-gray-400');
+        activeBtn.classList.add(tab === 'optimo' ? 'bg-violet-700' : 'bg-blue-700', 'text-white');
+    }
+    if (!_mkwData) return;
+
+    const pesosKey = tab === 'optimo' ? 'peso_optimo' : 'peso_minvar';
+    const cont = document.getElementById('mkw-pesos-tabla');
+
+    // Ordenar por peso descendente
+    const sorted = [..._mkwData.per_ticker].sort((a, b) => b[pesosKey] - a[pesosKey]);
+    cont.innerHTML = sorted.map(t => {
+        const peso = t[pesosKey];
+        const barW = Math.round(peso);
+        const colorBar = tab === 'optimo' ? 'bg-violet-600' : 'bg-blue-600';
+        // Peso actual en cartera (de datosActuales)
+        const vTotal = datosActuales.reduce((s, d) => s + d.cantidad * d.precio_actual, 0);
+        const item   = datosActuales.find(d => d.ticker === t.ticker);
+        const pesoActual = item && vTotal > 0 ? ((item.cantidad * item.precio_actual) / vTotal * 100) : 0;
+        const diff = peso - pesoActual;
+        const diffColor = diff > 1 ? 'text-green-400' : diff < -1 ? 'text-red-400' : 'text-gray-500';
+        const diffStr  = diff > 0.5 ? `▲ +${diff.toFixed(1)}%` : diff < -0.5 ? `▼ ${diff.toFixed(1)}%` : '≈ OK';
+
+        return `<div class="flex items-center gap-3">
+            <span class="text-blue-400 font-bold text-xs w-14 shrink-0">${t.ticker}</span>
+            <div class="flex-1 bg-gray-700 rounded-full h-2 overflow-hidden">
+                <div class="${colorBar} h-2 rounded-full transition-all" style="width:${barW}%"></div>
+            </div>
+            <span class="text-white font-mono text-xs w-10 text-right">${peso.toFixed(1)}%</span>
+            <span class="text-gray-500 text-[10px] w-14 text-right">ahora ${pesoActual.toFixed(1)}%</span>
+            <span class="text-[10px] font-bold w-16 text-right ${diffColor}">${diffStr}</span>
+        </div>`;
+    }).join('');
+}
+
+
     const cont   = document.getElementById('reb-tabla');
     const resCont = document.getElementById('reb-resumen');
     const resItems = document.getElementById('reb-resumen-items');
@@ -4469,14 +4722,19 @@ setTimeout(() => cargarWatchlistCards(), 3000); // 3s después del arranque
      MODAL — HISTORIAL DE OPERACIONES
 ════════════════════════════════════════════════════════════════════════════ -->
 <div id="modal-historial" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
-  <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-3xl max-h-[85vh] flex flex-col">
+  <div class="bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-4xl max-h-[85vh] flex flex-col">
     <div class="flex justify-between items-center p-5 border-b border-gray-700 sticky top-0 bg-gray-800 rounded-t-2xl z-10 shrink-0">
       <div>
         <h2 class="text-white font-bold text-lg">📋 Historial de Operaciones</h2>
-        <p class="text-gray-400 text-xs mt-0.5">Todas las compras y ventas registradas</p>
+        <p class="text-gray-400 text-xs mt-0.5">Compras y ventas · P&L realizado por operación (método FIFO)</p>
       </div>
-      <div class="flex items-center gap-3">
-        <select id="hist-filtro" onchange="renderHistorial()" class="bg-gray-700 text-gray-200 text-xs rounded-lg px-3 py-1.5 outline-none border border-gray-600">
+      <div class="flex items-center gap-2">
+        <select id="hist-tipo" onchange="renderHistorial()" class="bg-gray-700 text-gray-200 text-xs rounded-lg px-2 py-1.5 outline-none border border-gray-600">
+          <option value="">Todos</option>
+          <option value="Compra">Compras</option>
+          <option value="Venta">Ventas</option>
+        </select>
+        <select id="hist-filtro" onchange="renderHistorial()" class="bg-gray-700 text-gray-200 text-xs rounded-lg px-2 py-1.5 outline-none border border-gray-600">
           <option value="">Todos los tickers</option>
         </select>
         <button onclick="cerrarModal('modal-historial')" class="text-gray-400 hover:text-white text-2xl font-bold leading-none">&times;</button>
@@ -4486,12 +4744,14 @@ setTimeout(() => cargarWatchlistCards(), 3000); // 3s después del arranque
       <table class="w-full text-xs text-left">
         <thead class="text-gray-500 uppercase border-b border-gray-700 sticky top-0 bg-gray-800">
           <tr>
-            <th class="pb-2 pr-3">Fecha</th>
-            <th class="pb-2 pr-3">Ticker</th>
-            <th class="pb-2 pr-3">Tipo</th>
-            <th class="pb-2 pr-3 text-right">Cantidad</th>
-            <th class="pb-2 pr-3 text-right">Precio</th>
-            <th class="pb-2 text-right">Total</th>
+            <th class="pb-2 pr-2">Fecha</th>
+            <th class="pb-2 pr-2">Ticker</th>
+            <th class="pb-2 pr-2">Tipo</th>
+            <th class="pb-2 pr-2 text-right">Cant.</th>
+            <th class="pb-2 pr-2 text-right">Precio</th>
+            <th class="pb-2 pr-2 text-right">Total</th>
+            <th class="pb-2 pr-2 text-right" title="P&L realizado por FIFO">P&L</th>
+            <th class="pb-2">Nota</th>
           </tr>
         </thead>
         <tbody id="historial-tabla" class="divide-y divide-gray-800"></tbody>
@@ -4590,6 +4850,89 @@ setTimeout(() => cargarWatchlistCards(), 3000); // 3s después del arranque
     <div id="reb-resumen" class="mt-4 p-3 bg-gray-800 rounded-xl text-xs border border-gray-700 hidden">
       <p class="text-gray-400 text-[10px] uppercase tracking-widest mb-2">Resumen de operaciones</p>
       <div id="reb-resumen-items" class="space-y-1"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ═══════════════════════════════════════════════════════════════════════════
+     MODAL — OPTIMIZACIÓN MARKOWITZ
+════════════════════════════════════════════════════════════════════════════ -->
+<div id="modal-markowitz" class="hidden fixed inset-0 bg-black/80 flex items-center justify-center z-50 p-4">
+  <div class="bg-gray-900 rounded-2xl border border-violet-800/50 shadow-2xl w-full max-w-3xl max-h-[90vh] overflow-y-auto">
+    <div class="flex justify-between items-center p-5 border-b border-gray-700 sticky top-0 bg-gray-900 rounded-t-2xl z-10">
+      <div>
+        <h2 class="text-white font-bold text-lg">📐 Optimización de Cartera — Markowitz</h2>
+        <p class="text-gray-400 text-xs mt-0.5">Frontera eficiente · Portafolio de máximo Sharpe · Mínima varianza</p>
+      </div>
+      <button onclick="cerrarModal('modal-markowitz')" class="text-gray-400 hover:text-white text-2xl font-bold leading-none">&times;</button>
+    </div>
+
+    <div class="p-6 space-y-5">
+      <!-- Loading state -->
+      <div id="mkw-loading" class="flex flex-col items-center justify-center py-12 gap-3">
+        <div class="w-8 h-8 border-4 border-violet-500 border-t-transparent rounded-full animate-spin"></div>
+        <p class="text-gray-400 text-sm">Calculando 1500 portafolios aleatorios…</p>
+        <p class="text-gray-600 text-xs">Esto puede tardar hasta 30s en arranque frío</p>
+      </div>
+
+      <!-- Error state -->
+      <div id="mkw-error" class="hidden text-center py-8">
+        <p class="text-red-400 text-sm font-bold mb-2">⚠️ No se pudo calcular la frontera</p>
+        <p id="mkw-error-msg" class="text-gray-500 text-xs"></p>
+        <p class="text-gray-600 text-[10px] mt-2">Se necesitan al menos 2 activos en cartera y 60 días de historial.</p>
+      </div>
+
+      <!-- Content -->
+      <div id="mkw-content" class="hidden space-y-5">
+
+        <!-- Stat pills: max Sharpe vs min Var -->
+        <div class="grid grid-cols-2 gap-3">
+          <div class="bg-violet-900/30 border border-violet-700/40 rounded-xl p-4">
+            <p class="text-violet-300 text-[10px] uppercase tracking-widest mb-1">★ Máx. Sharpe</p>
+            <p class="text-white font-mono font-bold text-sm" id="mkw-opt-sharpe">—</p>
+            <p class="text-gray-400 text-[10px] mt-1">
+              Ret: <span id="mkw-opt-ret" class="text-green-400 font-bold">—</span> ·
+              Vol: <span id="mkw-opt-vol" class="text-yellow-400 font-bold">—</span>
+            </p>
+          </div>
+          <div class="bg-blue-900/30 border border-blue-700/40 rounded-xl p-4">
+            <p class="text-blue-300 text-[10px] uppercase tracking-widest mb-1">🛡 Mín. Varianza</p>
+            <p class="text-white font-mono font-bold text-sm" id="mkw-mv-sharpe">—</p>
+            <p class="text-gray-400 text-[10px] mt-1">
+              Ret: <span id="mkw-mv-ret" class="text-green-400 font-bold">—</span> ·
+              Vol: <span id="mkw-mv-vol" class="text-yellow-400 font-bold">—</span>
+            </p>
+          </div>
+        </div>
+
+        <!-- Scatter plot — frontera eficiente -->
+        <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+          <p class="text-gray-400 text-[10px] uppercase tracking-widest mb-3">Frontera Eficiente (riesgo vs retorno)</p>
+          <div style="height:260px;"><canvas id="grafico-markowitz"></canvas></div>
+          <div class="flex flex-wrap gap-3 mt-2 text-[10px]">
+            <span class="flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-violet-400 inline-block"></span>Portafolios simulados</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-yellow-400 border-2 border-white inline-block"></span>Máx. Sharpe</span>
+            <span class="flex items-center gap-1"><span class="w-3 h-3 rounded-full bg-cyan-400 border-2 border-white inline-block"></span>Mín. Varianza</span>
+          </div>
+        </div>
+
+        <!-- Pesos sugeridos por ticker -->
+        <div class="bg-gray-800 rounded-xl p-4 border border-gray-700">
+          <p class="text-gray-400 text-[10px] uppercase tracking-widest mb-3">Pesos Sugeridos por Activo</p>
+          <div class="flex gap-2 mb-3">
+            <button onclick="mkwSwitchTab('optimo')" id="mkw-tab-optimo"
+                    class="mkw-tab px-3 py-1 text-xs rounded font-bold bg-violet-700 text-white transition-all">★ Máx. Sharpe</button>
+            <button onclick="mkwSwitchTab('minvar')" id="mkw-tab-minvar"
+                    class="mkw-tab px-3 py-1 text-xs rounded font-bold bg-gray-700 text-gray-400 transition-all">🛡 Mín. Varianza</button>
+          </div>
+          <div id="mkw-pesos-tabla" class="space-y-2"></div>
+        </div>
+
+        <p class="text-gray-600 text-[10px] leading-relaxed">
+          * Basado en retornos históricos de los últimos 2 años. Los rendimientos pasados no garantizan resultados futuros.
+          Tasa libre de riesgo: 5% anual. Cálculo de 1500 portafolios aleatorios Monte Carlo.
+        </p>
+      </div>
     </div>
   </div>
 </div>

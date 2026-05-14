@@ -1689,6 +1689,119 @@ def riesgo_cartera(tickers: str = Query(default="")):
         return {"error": str(e)}
 
 
+
+@app.get("/markowitz")
+def markowitz_frontera(tickers: str = Query(default=""), n_portfolios: int = 1500):
+    """
+    Optimización de Markowitz: frontera eficiente + portafolio óptimo (max Sharpe) y min varianza.
+    Recibe: /markowitz?tickers=AAPL,MSFT,NVDA
+    Devuelve: portfolios[] para scatter, optimo{}, min_var{}, per_ticker[]
+    """
+    if not tickers.strip():
+        return {"error": "Se requieren tickers"}
+
+    ticker_list = [t.strip().upper() for t in tickers.split(',') if t.strip()]
+    # Excluir cryptos del análisis de Markowitz
+    stock_tickers = [
+        t for t in ticker_list
+        if t.replace('-USD', '').replace('/USD', '') not in CRYPTO_SYMBOLS
+    ]
+    if len(stock_tickers) < 2:
+        return {"error": "Se necesitan al menos 2 activos para calcular la frontera eficiente"}
+
+    cache_key = f"markowitz_{'_'.join(sorted(stock_tickers))}"
+    cached = _cache_get(_endpoint_cache, cache_key, 3600)
+    if cached is not None:
+        return cached
+
+    try:
+        syms_list = [yf_sym(t) for t in stock_tickers]
+        data = yf.download(
+            " ".join(syms_list), period="2y",
+            auto_adjust=True, progress=False
+        )
+        if isinstance(data.columns, pd.MultiIndex):
+            closes = data["Close"]
+        else:
+            closes = data[["Close"]]
+
+        # Construir matriz de retornos
+        ret_dict = {}
+        valid_tickers = []
+        for t, sym in zip(stock_tickers, syms_list):
+            col = sym if sym in closes.columns else (t if t in closes.columns else None)
+            if col is None:
+                continue
+            r = closes[col].dropna().pct_change().dropna()
+            if len(r) > 60:
+                ret_dict[t] = r
+                valid_tickers.append(t)
+
+        if len(valid_tickers) < 2:
+            return {"error": "Datos insuficientes para calcular la frontera"}
+
+        rets_df = pd.DataFrame(ret_dict).dropna()
+        n      = len(valid_tickers)
+        mu     = rets_df.mean().values * 252          # retorno anualizado esperado
+        cov    = rets_df.cov().values * 252            # covarianza anualizada
+        rf     = 0.05                                  # tasa libre de riesgo
+
+        rng = np.random.default_rng(42)
+        port_results = []
+
+        for _ in range(n_portfolios):
+            w = rng.random(n)
+            w /= w.sum()
+            p_ret  = float(np.dot(w, mu))
+            p_vol  = float(np.sqrt(w @ cov @ w))
+            p_sharpe = (p_ret - rf) / p_vol if p_vol > 0 else 0
+            port_results.append({
+                "ret": round(p_ret * 100, 4),
+                "vol": round(p_vol * 100, 4),
+                "sharpe": round(p_sharpe, 4),
+                "pesos": [round(float(wi), 4) for wi in w],
+            })
+
+        # Max Sharpe
+        optimo = max(port_results, key=lambda x: x["sharpe"])
+        # Min Varianza
+        min_var = min(port_results, key=lambda x: x["vol"])
+
+        # Pesos por ticker para el portafolio óptimo
+        per_ticker = [
+            {"ticker": t, "peso_optimo": round(optimo["pesos"][i] * 100, 1),
+             "peso_minvar": round(min_var["pesos"][i] * 100, 1),
+             "ret_anual": round(float(mu[i]) * 100, 1),
+             "vol_anual": round(float(np.sqrt(cov[i][i])) * 100, 1)}
+            for i, t in enumerate(valid_tickers)
+        ]
+
+        # Para el scatter: reducir a 500 puntos para no sobrecargar la respuesta
+        scatter = [{"x": p["vol"], "y": p["ret"], "s": p["sharpe"]} for p in port_results[::3]]
+
+        result = {
+            "scatter": scatter,
+            "optimo": {
+                "ret": optimo["ret"],
+                "vol": optimo["vol"],
+                "sharpe": optimo["sharpe"],
+            },
+            "min_var": {
+                "ret": min_var["ret"],
+                "vol": min_var["vol"],
+                "sharpe": min_var["sharpe"],
+            },
+            "per_ticker": per_ticker,
+            "tickers": valid_tickers,
+            "n_portfolios": n_portfolios,
+        }
+        _cache_set(_endpoint_cache, cache_key, result)
+        return result
+    except Exception as e:
+        print(f"Error markowitz: {e}")
+        return {"error": str(e)}
+
+
 if __name__ == "__main__":
     import os
     port = int(os.environ.get("PORT", 8000))
