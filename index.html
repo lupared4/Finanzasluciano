@@ -674,11 +674,14 @@
                         <thead class="text-gray-500 uppercase text-[10px] border-b border-gray-700">
                             <tr>
                                 <th class="pb-2">Activo</th>
-                                <th class="pb-2">Cant.</th>
+                                <th class="pb-2 hidden sm:table-cell">Cant.</th>
                                 <th class="pb-2">Precio Act.</th>
                                 <th class="pb-2 text-right" title="Cambio porcentual del día vs cierre anterior">Hoy %</th>
-                                <th class="pb-2 text-right">P&amp;L Latente</th>
-                                <th class="pb-2 text-center" title="Score de convicción 0–10: upside analistas + momentum + RSI + recomendación">Score</th>
+                                <th class="pb-2 text-right hidden md:table-cell" title="Precio promedio de compra">Entrada</th>
+                                <th class="pb-2 text-right" title="Retorno total en % desde precio de entrada">Ret. %</th>
+                                <th class="pb-2 text-right hidden lg:table-cell">P&amp;L $</th>
+                                <th class="pb-2 text-center" title="Score de convicción 0–10">Score</th>
+                                <th class="pb-2 text-center hidden lg:table-cell" title="RSI(14): sobrecomprado &gt;70, sobrevendido &lt;30">RSI</th>
                                 <th class="pb-2 text-center">Acciones</th>
                             </tr>
                         </thead>
@@ -1414,6 +1417,7 @@ async function cargarDatos() {
                 renderTorta();
                 // Cargar scores en background después del render (no bloquea UI)
                 setTimeout(() => _cargarScores(tickers), 1500);
+                setTimeout(() => _cargarRsiCache(tickers), 2500);
             }
         });
 
@@ -1751,6 +1755,29 @@ function renderGrafico(datos) {
     }
 
     lwChart.timeScale().fitContent();
+
+    // ── Línea de precio de compra ────────────────────────────────────────
+    if (tickerActivo) {
+        const posicion = datosActuales.find(d => d.ticker === tickerActivo);
+        if (posicion && posicion.precio_compra > 0) {
+            const mainSerie = lwChart.addLineSeries({
+                color:            'transparent',
+                lineWidth:        0,
+                priceLineVisible: false,
+                lastValueVisible: false,
+            });
+            // Dummy point para que la serie exista
+            if (datos.length) mainSerie.setData([{ time: datos[datos.length-1].time, value: posicion.precio_compra }]);
+            mainSerie.createPriceLine({
+                price:     posicion.precio_compra,
+                color:     '#f59e0b',
+                lineWidth: 1,
+                lineStyle: LightweightCharts.LineStyle.Dashed,
+                axisLabelVisible: true,
+                title: `Entrada $${posicion.precio_compra.toFixed(2)}`,
+            });
+        }
+    }
 
     // Calcular y mostrar zona de compra técnica
     _calcularZonaCompra(datos);
@@ -3800,11 +3827,36 @@ function renderTabla() {
             ? `<span class="font-mono text-xs font-bold ${chg >= 0 ? 'text-green-400' : 'text-red-400'}">${chg >= 0 ? '+' : ''}${chg.toFixed(2)}%</span>`
             : `<span class="text-gray-600 text-xs">—</span>`;
 
+        // Retorno % y precio de entrada
+        const retPct = item.precio_compra > 0
+            ? ((item.precio_actual - item.precio_compra) / item.precio_compra * 100)
+            : null;
+        const retColor = retPct != null ? (retPct >= 0 ? 'text-green-400' : 'text-red-400') : 'text-gray-500';
+        const retHtml  = retPct != null
+            ? `<span class="font-mono text-xs font-bold ${retColor}">${retPct >= 0 ? '+' : ''}${retPct.toFixed(1)}%</span>`
+            : `<span class="text-gray-600 text-xs">—</span>`;
+
+        // Días en cartera (desde primera compra)
+        const ops = getOperaciones().filter(o => o.ticker === item.ticker && o.tipo === 'Compra');
+        const primeraFecha = ops.length ? new Date(Math.min(...ops.map(o => new Date(o.fecha)))) : null;
+        const diasEnCartera = primeraFecha ? Math.floor((new Date() - primeraFecha) / 86400000) : null;
+        const diasTxt = diasEnCartera != null ? `${diasEnCartera}d` : '—';
+        const retAnual = (retPct != null && diasEnCartera > 0)
+            ? ((Math.pow(1 + retPct / 100, 365 / diasEnCartera) - 1) * 100)
+            : null;
+        const retAnualTxt = retAnual != null ? `${retAnual >= 0 ? '+' : ''}${retAnual.toFixed(0)}% anual` : '';
+
         // Score de convicción (lazy — se carga en background)
         const scoreData = _scoreCache[item.ticker];
         const scoreHtml = scoreData != null
             ? _renderScorePill(scoreData)
             : `<span id="score-pill-${item.ticker}" class="text-gray-700 text-[10px]">…</span>`;
+
+        // RSI badge (lazy — se llena desde _rsiCache)
+        const rsiVal  = _rsiCache[item.ticker];
+        const rsiBadge = rsiVal != null
+            ? _renderRsiBadge(rsiVal)
+            : `<span id="rsi-cell-${item.ticker}" class="text-gray-700 text-[10px]">…</span>`;
 
         tabla.innerHTML += `
             <tr class="hover:bg-gray-700/50 cursor-pointer border-b border-gray-800 transition-colors"
@@ -3816,13 +3868,16 @@ function renderTabla() {
                         ${badge}
                     </div>
                 </td>
-                <td class="text-gray-300">${item.cantidad}</td>
+                <td class="text-gray-300 hidden sm:table-cell">${item.cantidad}</td>
                 <td class="font-mono">$${item.precio_actual.toFixed(2)}</td>
                 <td class="text-right">${chgHtml}</td>
-                <td class="text-right font-bold font-mono ${color}">
+                <td class="text-right font-mono text-gray-400 text-xs hidden md:table-cell" title="Precio promedio de compra · En cartera: ${diasTxt}${retAnualTxt ? ' · ' + retAnualTxt : ''}">$${item.precio_compra.toFixed(2)}</td>
+                <td class="text-right">${retHtml}</td>
+                <td class="text-right font-bold font-mono ${color} hidden lg:table-cell">
                     ${pnlSign}$${item.ganancia.toLocaleString(undefined, {minimumFractionDigits:2})}
                 </td>
                 <td class="text-center" id="score-cell-${item.ticker}">${scoreHtml}</td>
+                <td class="text-center hidden lg:table-cell" id="rsi-cell-outer-${item.ticker}">${rsiBadge}</td>
                 <td class="text-center whitespace-nowrap">
                     <button onclick="event.stopPropagation(); abrirComparar('${item.ticker}')"
                             class="text-[10px] bg-blue-900 hover:bg-blue-700 px-2 py-1 rounded font-bold mr-1 transition-all" title="Comparar">
@@ -4142,6 +4197,42 @@ async function _cargarScores(tickers) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// RSI BADGE — carga lazy desde /analisis/ (no bloquea renderTabla)
+// ═══════════════════════════════════════════════════════════════════════════
+const _rsiCache = {};
+
+function _renderRsiBadge(rsi) {
+    if (rsi == null) return '<span class="text-gray-700 text-[10px]">—</span>';
+    const rsiN = parseFloat(rsi);
+    let color, label;
+    if      (rsiN > 75) { color = 'bg-red-900/60 text-red-300 border-red-700';           label = `🔴 ${rsiN}`; }
+    else if (rsiN > 60) { color = 'bg-orange-900/50 text-orange-300 border-orange-700';  label = `🟠 ${rsiN}`; }
+    else if (rsiN < 25) { color = 'bg-green-900/60 text-green-300 border-green-700';     label = `🟢 ${rsiN}`; }
+    else if (rsiN < 40) { color = 'bg-teal-900/50 text-teal-300 border-teal-700';        label = `🔵 ${rsiN}`; }
+    else                { color = 'bg-gray-700/60 text-gray-400 border-gray-600';        label = `${rsiN}`; }
+    const title = rsiN > 70 ? 'Sobrecomprado — posible corrección' : rsiN < 30 ? 'Sobrevendido — posible rebote' : 'RSI neutral';
+    return `<span class="inline-flex text-[10px] font-mono font-bold px-1.5 py-0.5 rounded border ${color}" title="${title}: RSI ${rsiN}">${label}</span>`;
+}
+
+async function _cargarRsiCache(tickers) {
+    if (!tickers || tickers.length === 0) return;
+    const pending = tickers.filter(t => _rsiCache[t] === undefined);
+    if (pending.length === 0) return;
+    await Promise.allSettled(pending.map(async (t, i) => {
+        await new Promise(r => setTimeout(r, i * 700 + 800)); // escalonado, empieza 800ms después de scores
+        try {
+            const an = await fetch(`https://finanzasluciano.onrender.com/analisis/${t}`, { signal: AbortSignal.timeout(25000) }).then(r => r.json());
+            _rsiCache[t] = an.rsi != null ? parseFloat(an.rsi) : null;
+        } catch { _rsiCache[t] = null; }
+        // Actualizar celda en DOM
+        const outer = document.getElementById(`rsi-cell-outer-${t}`);
+        if (outer && _rsiCache[t] != null) outer.innerHTML = _renderRsiBadge(_rsiCache[t]);
+        const inner = document.getElementById(`rsi-cell-${t}`);
+        if (inner && _rsiCache[t] != null) inner.outerHTML = _renderRsiBadge(_rsiCache[t]);
+    }));
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // KEEP-ALIVE — ping al backend cada 13 min para evitar cold start de Render
 // ═══════════════════════════════════════════════════════════════════════════
 (function keepAlive() {
@@ -4327,6 +4418,7 @@ setInterval(() => {
         // Re-cargar scores para tickers nuevos (sin cache)
         const tickers = datosActuales.map(d => d.ticker);
         setTimeout(() => _cargarScores(tickers), 2000);
+        setTimeout(() => _cargarRsiCache(tickers), 3500);
     });
     if (_getWatchlist().length > 0) cargarWatchlistCards();
     actualizarBadgeAlertas();
